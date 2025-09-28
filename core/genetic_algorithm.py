@@ -1,7 +1,7 @@
 import numpy as np
 from deap import base, creator, tools, algorithms
 from config.parameters import *
-from core.lithography_simulation import hopkins_digital_lithography_simulation
+from core.lithography_simulation_source import hopkins_digital_lithography_simulation
 from utils.image_processing import binarize_image
 
 # 创建适应度和个体类
