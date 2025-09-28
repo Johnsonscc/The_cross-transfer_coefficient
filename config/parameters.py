@@ -20,11 +20,11 @@ TOURNSIZE = 3  # 锦标赛选择的大小
 INDPB = 0.02  # 个体变异概率
 
 # 文件路径
-INITIAL_MASK_PATH = "/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/cell0.png"
-TARGET_IMAGE_PATH = "/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/cell0.png"
-OUTPUT_MASK_PATH = "/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/output/optimized_mask_cell0.png"
-RESULTS_IMAGE_PATH = "/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/output/results_comparison_cell0.png"
-FITNESS_PLOT_PATH = "/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/output/fitness_evolution_cell0.png"
+INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/cell0.png"
+TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/cell0.png"
+OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_cell0.png"
+RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_cell0.png"
+FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_cell0.png"
 
 # 可视化参数
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为SimHei
