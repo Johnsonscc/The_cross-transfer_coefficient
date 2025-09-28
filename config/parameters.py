@@ -27,11 +27,11 @@ TOURNSIZE = 3  # 锦标赛选择的大小
 INDPB = 0.02  # 个体变异概率
 
 # 文件路径
-INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/mask01.png"
-TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/mask01.png"
-OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_mask01.png"
-RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_mask01.png"
-FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_mask01.png"
+INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/arrow.png"
+TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/arrow.png"
+OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_arrow..png"
+RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_arrow..png"
+FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_arrow..png"
 
 # 可视化参数
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为SimHei
