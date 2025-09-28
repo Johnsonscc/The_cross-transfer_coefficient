@@ -1,7 +1,6 @@
-# lithography_simulation_source.py
 import numpy as np
 from scipy.fft import fft2, ifft2, fftshift, ifftshift
-from scipy.integrate import simpson
+from scipy import integrate
 from scipy.signal import convolve2d
 from config.parameters import *
 
@@ -122,6 +121,8 @@ def compute_tcc_4d(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
             for i_dprime in range(Lx):  # fx''
                 for j_dprime in range(Ly):  # fy''
 
+                    print("tcc")
+
                     # 创建被积函数
                     integrand = np.zeros((Lx, Ly), dtype=complex)
                     for m in range(Lx):
@@ -137,23 +138,29 @@ def compute_tcc_4d(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
                             P_conj = np.conj(P_grid[idx2_x, idx2_y])
 
                             integrand[m, n] = J_grid[m, n] * P_original * P_conj
-                            print("TCC...")
 
-                    # 二重积分
+                    # 二重积分 - 使用兼容的积分方法
                     integral_y = np.zeros(Lx, dtype=complex)
                     for i in range(Lx):
-                        integral_y[i] = simpson(integrand[i, :], fy)
-                    tcc_value = simpson(integral_y, fx)
+                        # 使用梯形法则进行积分，兼容性更好
+                        integral_y[i] = np.trapz(integrand[i, :], fy)
+                    tcc_value = np.trapz(integral_y, fx)
 
                     tcc[i_prime, j_prime, i_dprime, j_dprime] = tcc_value
 
     return tcc
 
 
+
+
 def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, na=NA, sigma=SIGMA,
-                               Wx=WX, Wy=WY, Tx=TX, Ty=TY, dx=DX, dy=DY):
+                               Wx=WX, Wy=WY, Tx=TX, Ty=TY, dx=DX, dy=DY,
+                               use_optimized=True):
     """
     Hopkins成像仿真（基于四维TCC）
+
+    参数:
+    use_optimized: 是否使用优化版本的TCC计算
     """
     # 1. DMD调制
     M_prime = dmd_modulation(mask, Wx, Wy, Tx, Ty, dx, dy)
@@ -182,8 +189,9 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, na=NA, sigma=SI
                     I_mask[i_prime, j_prime] += (TCC[i_prime, j_prime, i_dprime, j_dprime] *
                                                  M_fft[i_prime, j_prime] *
                                                  np.conj(M_fft[i_dprime, j_dprime]))
-                    print("Hopkins...")
+
+                    print("hopkins_digital_lithography_simulation")
+
     I_xy = np.abs(ifft2(ifftshift(I_mask)))
 
     return I_xy
-
