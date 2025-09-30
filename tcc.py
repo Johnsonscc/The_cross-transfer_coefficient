@@ -75,7 +75,7 @@ def hopkins_digital_lithography_simulation(mask, lambda_, Lx, Ly, z, dx, dy, n, 
 lambda_ = 405  # 波长（单位：纳米）
 z = 803000000  # 距离（单位：纳米），这里是假设值
 dx = dy = 7560  # 每个微镜的尺寸（单位：纳米）
-Lx = Ly = 70  # 图像尺寸（单位：像素）
+Lx = Ly = 30  # 图像尺寸（单位：像素）
 n = 1.5  # 折射率（无量纲）
 sigma = 0.5  # 部分相干因子（无量纲）
 NA = 0.5  # 数值孔径（无量纲）

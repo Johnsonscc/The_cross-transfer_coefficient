@@ -1,8 +1,9 @@
 import time
 import numpy as np
 from config.parameters import *
+from core.lithography_simulation import dmd_modulation
 from utils.image_processing import load_image, binarize_image, save_image
-from core.lithography_simulation import hopkins_digital_lithography_simulation
+from core.lithography_simulation_source import hopkins_digital_lithography_simulation
 from core.genetic_algorithm import setup_toolbox, run_genetic_algorithm
 from utils.visualization import plot_comparison, plot_fitness_evolution
 
@@ -21,7 +22,7 @@ def main():
     simulated_image_initial = hopkins_digital_lithography_simulation(initial_mask)
     threshold = 0.5 * np.max(simulated_image_initial)
     binary_image_initial = binarize_image(simulated_image_initial, threshold)
-    PE_initial = np.sum((np.abs(binary_image_initial.astype(np.float32) - target_image.astype(np.float32)))**2)#初始PE值计算
+    PE_initial = np.sum(np.abs(binary_image_initial.astype(np.float32) - target_image.astype(np.float32)))
 
     # 设置遗传算法工具箱
     print("Setting up genetic algorithm...")
@@ -38,7 +39,7 @@ def main():
     print("Running lithography simulation for optimized mask...")
     best_simulated_image = hopkins_digital_lithography_simulation(best_mask)
     best_binary_image = binarize_image(best_simulated_image, threshold)
-    PE_best = np.sum((np.abs(best_binary_image.astype(np.float32) - target_image.astype(np.float32)))**2)#最好PE值计算
+    PE_best = np.sum(np.abs(best_binary_image.astype(np.float32) - target_image.astype(np.float32)))
 
     # 结束计时
     end_time = time.time()
