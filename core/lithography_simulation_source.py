@@ -3,6 +3,7 @@ from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from config.parameters import *
 from scipy.signal import convolve2d
 
+#DMD调制
 def dmd_modulation(M_xy, Lx, Ly, Wx, Wy, Tx, Ty, dx, dy):
     # 计算超采样因子以获得更精确的卷积
     oversample_factor = 10
@@ -28,7 +29,6 @@ def dmd_modulation(M_xy, Lx, Ly, Wx, Wy, Tx, Ty, dx, dy):
                 comb_function[i, j] = 1.0 / (dx * dy)  # 狄拉克δ函数的离散近似
 
     # 3. 矩形函数与梳状函数的卷积
-    # 使用FFT卷积提高效率
     rect_comb_conv = convolve2d(rect_function, comb_function, mode='same', boundary='fill', fillvalue=0)
 
     # 4. 原始掩模与调制函数的卷积，并应用归一化因子
@@ -46,18 +46,19 @@ def transfer_function(fx, fy, lambda_=LAMBDA, z=Z, n=N):
     H = np.exp(-1j * np.pi * lambda_ * z * (fx ** 2 + fy ** 2) / n ** 2)#与原文中的霍普金斯存在偏差
     return H
 
+#曝光光源强度函数
+def light_source_function(fx,fy,sigma=SIGMA,na=NA,lambda_=LAMBDA):
+	r=np.sqrt(fx**2+fy**2)
+	r_max=sigma*na/lambda_
+	J=np.where(r<=r_max,lambda_**2/(np.pi*(sigma*na)**2),0)
+	return J
 
-def light_source_function(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
-    condition = (fx ** 2 + fy ** 2) <= (sigma * na / lambda_) ** 2
-    J = np.where(condition, (lambda_ ** 2) / (np.pi * (sigma * na) ** 2), 0)
-    return J
-
-
-def impulse_response_function(fx, fy, na=NA, lambda_=LAMBDA):
-    condition = (fx ** 2 + fy ** 2) <= (na / lambda_) ** 2
-    P = np.where(condition, (lambda_ ** 2) / (np.pi * na ** 2), 0)
-    return P
-
+#光瞳频率响应函数
+def pupil_response_function(fx,fy,na=NA,lambda_=LAMBDA):
+	r=np.sqrt(fx**2+fy**2)
+	r_max=na/lambda_
+	P=np.where(r<=r_max,lambda_**2/(np.pi*(na)**2),0)
+	return P
 
 def compute_tcc(J, P, fx, fy):
     tcc = np.convolve(J(fx, fy) * P(fx, fy), J(fx, fy) * P(fx, fy), mode='same')
@@ -72,7 +73,7 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
     fy = np.linspace(-0.5 / dy, 0.5 / dy, ly)
 
     J = lambda fx, fy: light_source_function(fx, fy, sigma, na, lambda_)
-    P = lambda fx, fy: impulse_response_function(fx, fy, na, lambda_)
+    P = lambda fx, fy: pupil_response_function(fx, fy, na, lambda_)
 
     tcc = compute_tcc(J, P, fx, fy)
     M_fft = fftshift(fft2(mask))

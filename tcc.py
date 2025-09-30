@@ -16,11 +16,11 @@ rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为SimHei
 rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
 
 # Step 1: 导入初始掩膜图像和目标图像
-initial_mask = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/mask01.png")
+initial_mask = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/hexagonal.png")
 if len(initial_mask.shape)>2:
     initial_mask = rgb2gray(initial_mask)
 
-target_image = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/mask01.png")
+target_image = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/hexagonal.png")
 if len(target_image.shape)>2:
     target_image = rgb2gray(target_image)
 
@@ -128,7 +128,7 @@ stats.register("std", np.std)
 stats.register("min", np.min)
 stats.register("max", np.max)
 
-pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.4, mutpb=0.4 , ngen=200, stats=stats, halloffame=hof, verbose=True)
+pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.4, mutpb=0.4 , ngen=100, stats=stats, halloffame=hof, verbose=True)
 
 # 结束时间
 end_time = time.time()

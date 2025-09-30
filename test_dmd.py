@@ -1,5 +1,3 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from PIL import Image
 import os
 
@@ -23,7 +21,6 @@ def save_dmd_modulation_results(original_mask, modulated_mask,
     original_img.save(os.path.join(output_dir, "original_mask.png"))
 
     # 保存调制后的掩模
-    # 归一化调制后的掩模以便显示
 
     modulated_display = modulated_mask
 
@@ -84,50 +81,5 @@ def test_dmd_modulation():
         traceback.print_exc()
 
 
-def test_with_real_image():
-    """
-    使用真实图像测试DMD调制
-    """
-    from utils.image_processing import load_image
-
-    print("\nTesting with real image...")
-
-    # 加载真实图像
-    try:
-        real_mask = load_image(INITIAL_MASK_PATH)
-        print(f"Real mask shape: {real_mask.shape}")
-        print(f"Real mask value range: [{real_mask.min():.3f}, {real_mask.max():.3f}]")
-
-        # 应用DMD调制
-        modulated_real = dmd_modulation(
-            real_mask,
-            Wx=WX, Wy=WY,
-            Tx=TX, Ty=TY,
-            dx=DX, dy=DY,
-            Lx=LX, Ly=LY
-        )
-
-        print(f"Modulated real mask shape: {modulated_real.shape}")
-        print(f"Modulated real mask value range: [{modulated_real.min():.3f}, {modulated_real.max():.3f}]")
-
-        # 保存结果
-        save_dmd_modulation_results(
-            real_mask,
-            modulated_real,
-            output_dir="../The_cross-transfer_coefficient/data/output/dmd_test_real"
-        )
-
-        print("Real Image DMD Modulation Test Completed Successfully!")
-
-    except Exception as e:
-        print(f"Error with real image test: {e}")
-        import traceback
-        traceback.print_exc()
-
-
 if __name__ == "__main__":
-    # 运行测试
     test_dmd_modulation()
-
-    # 可选：使用真实图像测试
-    #test_with_real_image()
