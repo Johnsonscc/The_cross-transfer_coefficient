@@ -19,7 +19,7 @@ def main():
     # 初始掩膜的光刻仿真
     print("Running initial lithography simulation...")
     simulated_image_initial = hopkins_digital_lithography_simulation(initial_mask)
-    threshold = 0.5 * np.max(simulated_image_initial)
+    threshold = 0.2 * np.max(simulated_image_initial)
     binary_image_initial = binarize_image(simulated_image_initial, threshold)
     PE_initial = np.sum(np.abs(binary_image_initial.astype(np.float32) - target_image.astype(np.float32)))
 
