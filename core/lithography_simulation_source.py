@@ -69,6 +69,8 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
                                            wx=WX,wy=WY,tx=TX,ty=TY,z=Z, dx=DX, dy=DY, n=N, sigma=SIGMA, na=NA):
 
     #mask = dmd_modulation(mask, lx, ly, wx, wy, tx, ty, dx, dy)
+
+
     fx = np.linspace(-0.5 / dx, 0.5 / dx, lx)
     fy = np.linspace(-0.5 / dy, 0.5 / dy, ly)
 
@@ -84,3 +86,4 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
 
     result = ifft2(ifftshift(result_fft))
     return np.abs(result)
+

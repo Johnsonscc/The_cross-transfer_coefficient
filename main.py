@@ -1,9 +1,8 @@
 import time
 import numpy as np
 from config.parameters import *
-from core.lithography_simulation import dmd_modulation
 from utils.image_processing import load_image, binarize_image, save_image
-from core.lithography_simulation_source import hopkins_digital_lithography_simulation
+from core.lithography_simulation_gpu import hopkins_digital_lithography_simulation
 from core.genetic_algorithm import setup_toolbox, run_genetic_algorithm
 from utils.visualization import plot_comparison, plot_fitness_evolution
 
