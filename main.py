@@ -36,9 +36,10 @@ def main():
 
     # 最佳掩膜的光刻仿真
     print("Running lithography simulation for optimized mask...")
-    best_simulated_image = hopkins_digital_lithography_simulation(best_mask)
+    best_simulated_image = best_mask#           暂时注释遗传算法的掩模优化
     best_binary_image = binarize_image(best_simulated_image, threshold)
     PE_best = np.sum(np.abs(best_binary_image.astype(np.float32) - target_image.astype(np.float32)))
+
 
     # 结束计时
     end_time = time.time()
@@ -63,3 +64,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
