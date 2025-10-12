@@ -30,7 +30,7 @@ def compute_tcc_svd(J, P, fx, fy, k):
     # 计算TCC核函数
     tcc_kernel = J_vals * P_vals
     Lx, Ly = len(fx), len(fy)
-    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
+    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.float32)
 
     print("Building TCC matrix...")
 
