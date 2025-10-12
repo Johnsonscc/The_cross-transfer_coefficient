@@ -2,7 +2,7 @@ import time
 import numpy as np
 from config.parameters import *
 from utils.image_processing import load_image, binarize_image, save_image
-from core.lithography_simulation_gpu import hopkins_digital_lithography_simulation
+from core.lithography_simulation import hopkins_digital_lithography_simulation
 from core.genetic_algorithm import setup_toolbox, run_genetic_algorithm
 from utils.visualization import plot_comparison, plot_fitness_evolution
 
@@ -19,7 +19,7 @@ def main():
     # 初始掩膜的光刻仿真
     print("Running initial lithography simulation...")
     simulated_image_initial = hopkins_digital_lithography_simulation(initial_mask)
-    threshold = 0.2 * np.max(simulated_image_initial)
+    threshold = 0.5 * np.max(simulated_image_initial)
     binary_image_initial = binarize_image(simulated_image_initial, threshold)
     PE_initial = np.sum(np.abs(binary_image_initial.astype(np.float32) - target_image.astype(np.float32)))
 
@@ -36,7 +36,7 @@ def main():
 
     # 最佳掩膜的光刻仿真
     print("Running lithography simulation for optimized mask...")
-    best_simulated_image = best_mask#           暂时注释遗传算法的掩模优化
+    best_simulated_image = hopkins_digital_lithography_simulation(best_mask)
     best_binary_image = binarize_image(best_simulated_image, threshold)
     PE_best = np.sum(np.abs(best_binary_image.astype(np.float32) - target_image.astype(np.float32)))
 

@@ -3,7 +3,7 @@ import os
 
 # 导入参数和DMD调制函数
 from config.parameters import *
-from core.lithography_simulation import dmd_modulation
+from core.lithography_simulation_source import dmd_modulation
 from utils.image_processing import load_image, binarize_image, save_image
 
 
