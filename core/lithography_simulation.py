@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from config.parameters import *
-from scipy.linalg import svd
+from scipy.sparse.linalg import svds
 from tqdm import tqdm  # 添加进度条库
 
 def light_source_function(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
@@ -18,7 +18,7 @@ def pupil_response_function(fx, fy, na=NA, lambda_=LAMBDA):
     return P
 
 
-def compute_tcc_svd(J, P, fx, fy, k=10):
+def compute_tcc_svd(J, P, fx, fy, k):
 
     # 创建频域网格
     FX, FY = np.meshgrid(fx, fy, indexing='ij')
@@ -48,20 +48,19 @@ def compute_tcc_svd(J, P, fx, fy, k=10):
     TCC_2d = TCC_4d.reshape(Lx * Ly, Lx * Ly)
 
     # 奇异值分解
-    U, S, Vh = svd(TCC_2d, full_matrices=False)
+    U, S, Vh = svds(TCC_2d, k=min(k, min(TCC_2d.shape) - 1))
 
-    # 保留前k个奇异值
-    k = min(k, len(S))
-    sigma = S[:k]
+    # 确保奇异值按降序排列
+    idx = np.argsort(S)[::-1]
+    S = S[idx]
+    U = U[:, idx]
     H_functions = []
 
-    print(f"Extracting {k} singular values...")
-
-    for i in tqdm(range(k), desc="Extracting eigenfunctions"):
+    for i in tqdm(range(len(S)), desc="Extracting eigenfunctions"):
         H_i = U[:, i].reshape(Lx, Ly)
         H_functions.append(H_i)
 
-    return sigma, H_functions
+    return S, H_functions
 
 
 def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
@@ -77,7 +76,7 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
 
     # 计算TCC并进行SVD分解
     print("Computing TCC and performing SVD...")
-    sigma, H_functions = compute_tcc_svd(J, P, fx, fy, k_svd)
+    singular, H_functions = compute_tcc_svd(J, P, fx, fy, k_svd)
 
     # 掩模的傅里叶变换
     M_fft = fftshift(fft2(mask))
@@ -86,8 +85,8 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
     intensity = np.zeros((lx, ly), dtype=np.float64)
 
     # 根据SVD分解计算光强
-    print(f"Computing intensity using {len(sigma)} singular values...")
-    for i, (s_val, H_i) in enumerate(zip(sigma, H_functions)):
+    print(f"Computing intensity using {len(singular)} singular values...")
+    for i, (s_val, H_i) in enumerate(zip(singular, H_functions)):
         # 滤波后的频谱
         filtered_fft = M_fft * H_i
 
