@@ -1,15 +1,14 @@
 import matplotlib.pyplot as plt
 from config.parameters import *
 
-
-def plot_comparison(target_image, simulated_image_initial, initial_binary_simulated_image,
+def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simulated_image,
                     best_mask, best_simulated_image, optimized_binary_simulated_image,
                     pe_initial, pe_best, save_path=None):
     plt.figure(figsize=(24, 18))
 
     # 目标图像
     plt.subplot(231)
-    plt.imshow(target_image, cmap='gray')
+    plt.imshow(initial_mask, cmap='gray')
     plt.title('Original Image')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
