@@ -9,7 +9,8 @@ def load_image(path,grayscale=True):
         image = rgb2gray(image)
     return image
 
-def binarize_image(image,threshold):
+def binarize_image(image):
+    threshold = 0.5 * np.max(image)
     return (image>threshold).astype(np.uint8)#threshold为设定阈值，对图像进行二值化
 
 def save_image(image,path):

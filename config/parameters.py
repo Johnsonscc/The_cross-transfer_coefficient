@@ -5,10 +5,12 @@ import matplotlib.pyplot as plt
 LAMBDA = 405  # 波长（单位：纳米）
 Z = 803000000  # 距离（单位：纳米）
 DX = DY = 7560  # 像素尺寸（单位：纳米）
-LX = LY = 500  # 图像尺寸（单位：像素）
+LX = LY = 10  # 图像尺寸（单位：像素）
 N = 1.5  # 折射率（无量纲）
 SIGMA = 0.5  # 部分相干因子（无量纲）
 NA = 0.5  # 数值孔径（无量纲）
+A = 10.0 #sigmoid函数梯度
+TR = 0.5 #光刻胶阈值
 
 # DMD调制参数
 WX = 7560  # 微镜宽度（单位：纳米）
@@ -27,11 +29,11 @@ TOURNSIZE = 3  # 锦标赛选择的大小
 INDPB = 0.02  # 个体变异概率
 
 # 文件路径
-INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/pixel500.png"
-TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/pixel500.png"
-OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_pixel500.png"
-RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_pixel500.png"
-FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_pixel500.png"
+INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/pixel10.png"
+TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/pixel10.png"
+OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_pixel10.png"
+RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_pixel10.png"
+FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_pixel10.png"
 SAVE_PATH="../The_cross-transfer_coefficient/data/output/save.png"
 
 # 可视化参数

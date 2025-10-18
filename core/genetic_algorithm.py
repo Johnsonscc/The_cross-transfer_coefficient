@@ -1,8 +1,8 @@
 import numpy as np
 from deap import base, creator, tools, algorithms
 from config.parameters import *
-from core.lithography_simulation_source import hopkins_digital_lithography_simulation
 from utils.image_processing import binarize_image
+from core.lithography_simulation_source import hopkins_digital_lithography_simulation
 
 # 创建适应度和个体类
 creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
@@ -26,7 +26,7 @@ def setup_toolbox(initial_mask_flat, target_image, threshold):
     def evalPE(individual):
         mask = np.array(individual, dtype=np.float32).reshape((LX, LY))#一维个体转化为二维掩模
         simulated_image = hopkins_digital_lithography_simulation(mask)
-        binary_image = binarize_image(simulated_image, threshold)
+        binary_image = binarize_image(simulated_image)
         PE = np.mean((binary_image.astype(np.float32) - target_image.astype(np.float32)) ** 2)#MSE
         return PE,
 

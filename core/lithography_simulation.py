@@ -4,6 +4,7 @@ from config.parameters import *
 from scipy.sparse.linalg import svds
 from tqdm import tqdm  # 添加进度条库
 
+
 def light_source_function(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
     r = np.sqrt(fx ** 2 + fy ** 2)
     r_max = sigma * na / lambda_
@@ -13,13 +14,12 @@ def light_source_function(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
 
 def pupil_response_function(fx, fy, na=NA, lambda_=LAMBDA):
     r = np.sqrt(fx ** 2 + fy ** 2)
-    r_max=na / lambda_
+    r_max = na / lambda_
     P = np.where(r < r_max, lambda_ ** 2 / (np.pi * (na) ** 2), 0)
     return P
 
 
-def compute_tcc_svd(J, P, fx, fy, k=10):
-
+def compute_tcc_svd(J, P, fx, fy, k):
     # 创建频域网格
     FX, FY = np.meshgrid(fx, fy, indexing='ij')
 
@@ -30,7 +30,7 @@ def compute_tcc_svd(J, P, fx, fy, k=10):
     # 计算TCC核函数
     tcc_kernel = J_vals * P_vals
     Lx, Ly = len(fx), len(fy)
-    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.float32)
+    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
 
     print("Building TCC matrix...")
 
@@ -56,15 +56,16 @@ def compute_tcc_svd(J, P, fx, fy, k=10):
     U = U[:, idx]
     H_functions = []
 
-    for i in range(len(S)):
+    for i in tqdm(range(len(S)), desc="Extracting eigenfunctions"):
         H_i = U[:, i].reshape(Lx, Ly)
         H_functions.append(H_i)
 
     return S, H_functions
 
 
+
 def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
-                                            dx=DX, dy=DY, sigma=SIGMA, na=NA, k_svd=10):
+                                           dx=DX, dy=DY, sigma=SIGMA, na=NA, k_svd=10):
 
     # 频域坐标
     fx = np.linspace(-0.5 / dx, 0.5 / dx, lx)
@@ -75,7 +76,7 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
     P = lambda fx, fy: pupil_response_function(fx, fy, na, lambda_)
 
     # 计算TCC并进行SVD分解
-    sigma, H_functions = compute_tcc_svd(J, P, fx, fy, k_svd)
+    singular, H_functions = compute_tcc_svd(J, P, fx, fy, k_svd)
 
     # 掩模的傅里叶变换
     M_fft = fftshift(fft2(mask))
@@ -84,8 +85,8 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
     intensity = np.zeros((lx, ly), dtype=np.float64)
 
     # 根据SVD分解计算光强
-    print(f"Computing intensity using {len(sigma)} singular values...")
-    for i, (s_val, H_i) in enumerate(zip(sigma, H_functions)):
+    print(f"Computing intensity using {len(singular)} singular values...")
+    for i, (s_val, H_i) in enumerate(zip(singular, H_functions)):
         # 滤波后的频谱
         filtered_fft = M_fft * H_i
 
@@ -95,13 +96,14 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
         # 累加光强贡献
         intensity += s_val * np.abs(filtered_space) ** 2
 
-
-    # 最终结果
-    result_fft = fft2(intensity)
-    result = np.abs(ifft2(result_fft))
-
     # 归一化到[0,1]范围
-    result = (result - np.min(result)) / (np.max(result) - np.min(result))
+    intensity_normalized = (intensity - np.min(intensity)) / (np.max(intensity) - np.min(intensity))
 
-    return result
+    return intensity_normalized
 
+def photoresist_model(intensity, a=A, T_r=TR):
+
+    # 应用sigmoid函数
+    resist_pattern = 1 / (1 + np.exp(-a * (intensity - T_r)))
+
+    return resist_pattern

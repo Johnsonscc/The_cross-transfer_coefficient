@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from config.parameters import *
+from scipy.ndimage import sobel
 
 def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simulated_image,
                     best_mask, best_simulated_image, optimized_binary_simulated_image,
@@ -23,7 +24,7 @@ def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simula
     # 原始掩膜曝光后的二值图像
     plt.subplot(233)
     plt.imshow(initial_binary_simulated_image, cmap='gray')
-    plt.title('Binary Image after Exposure from Original Mask')
+    plt.title('Printed image after photoresist from Original Mask')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
 
@@ -31,6 +32,7 @@ def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simula
     ax = plt.gca()
     text_str=f'PE= {pe_initial:.2f}'
     ax.text(0.05, 0.95, text_str, transform=ax.transAxes)
+
 
     # 优化后的掩膜
     plt.subplot(234)
@@ -49,7 +51,7 @@ def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simula
     # 优化掩膜曝光后的二值图像
     plt.subplot(236)
     plt.imshow(optimized_binary_simulated_image, cmap='gray')
-    plt.title('Binary Image after Exposure from Optimized Mask')
+    plt.title('Printed image after photoresist from Optimized Mask')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
 
