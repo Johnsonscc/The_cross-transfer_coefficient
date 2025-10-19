@@ -1,6 +1,6 @@
 import numpy as np
 import imageio.v2 as iio
-from skimage.io import imsave
+import matplotlib.pyplot as plt
 from skimage.color import rgb2gray
 
 def load_image(path,grayscale=True):
@@ -14,8 +14,4 @@ def binarize_image(image):
     return (image>threshold).astype(np.uint8)#threshold为设定阈值，对图像进行二值化
 
 def save_image(image,path):
-    if image.dtype != np.uint8:
-        image_normalized = (255*((image - image.min())/(image.max()-image.min())).astype(np.uint8))#归一化处理
-        imsave(path, image_normalized)
-    else:
-        imsave(path,image)
+    plt.imsave(path, image, cmap='gray', vmin=image.min(), vmax=image.max())#保存灰度图像

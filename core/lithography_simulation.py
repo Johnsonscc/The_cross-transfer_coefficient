@@ -30,7 +30,7 @@ def compute_tcc_svd(J, P, fx, fy, k):
     # 计算TCC核函数
     tcc_kernel = J_vals * P_vals
     Lx, Ly = len(fx), len(fy)
-    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
+    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.float64)
 
     print("Building TCC matrix...")
 
@@ -101,9 +101,9 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
 
     return intensity_normalized
 
-def photoresist_model(intensity, a=A, T_r=TR):
+def photoresist_model(intensity, a=RESIST_A, Tr=RESIST_Tr):
 
     # 应用sigmoid函数
-    resist_pattern = 1 / (1 + np.exp(-a * (intensity - T_r)))
+    resist_pattern = 1 / (1 + np.exp(-a * (intensity - Tr)))
 
     return resist_pattern
