@@ -68,8 +68,8 @@ def compute_gradient(mask, target_image, singular_values, kernel_functions, resi
 def inverse_lithography_optimization(initial_mask, target_image,
                                      learning_rate=ILT_LEARNING_RATE,
                                      max_iter=ILT_MAX_ITER,
-                                     resist_a=RESIST_A,
-                                     resist_Tr=RESIST_Tr,
+                                     resist_a=A,
+                                     resist_Tr=TR,
                                      convergence_tol=ILT_CONVERGENCE_TOL,
                                      k_svd=ILT_SVD_K):
     """

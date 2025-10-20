@@ -101,7 +101,7 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
 
     return intensity_normalized
 
-def photoresist_model(intensity, a=RESIST_A, Tr=RESIST_Tr):
+def photoresist_model(intensity, a=A, Tr=TR):
 
     # 应用sigmoid函数
     resist_pattern = 1 / (1 + np.exp(-a * (intensity - Tr)))
