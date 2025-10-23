@@ -2,7 +2,11 @@ import numpy as np
 from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from config.parameters import *
 from scipy.sparse.linalg import svds
-from tqdm import tqdm  # 添加进度条库
+from tqdm import tqdm
+import logging
+
+# 设置日志
+logger = logging.getLogger(__name__)
 
 
 def light_source_function(fx, fy, sigma=SIGMA, na=NA, lambda_=LAMBDA):
@@ -27,10 +31,12 @@ def compute_tcc_svd(J, P, fx, fy, k):
     J_vals = J(FX, FY)
     P_vals = P(FX, FY)
 
-    # 计算TCC核函数
+    # 计算TCC核函数 - 修复：保持复数类型
     tcc_kernel = J_vals * P_vals
     Lx, Ly = len(fx), len(fy)
-    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.float64)
+
+    # 修复：TCC矩阵应该是复数类型
+    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
 
     print("Building TCC matrix...")
 
@@ -50,10 +56,12 @@ def compute_tcc_svd(J, P, fx, fy, k):
     # 奇异值分解
     U, S, Vh = svds(TCC_2d, k=min(k, min(TCC_2d.shape) - 1))
 
-    # 确保奇异值按降序排列
-    idx = np.argsort(S)[::-1]
-    S = S[idx]
-    U = U[:, idx]
+    # 取前k个奇异值
+    if k > len(S):
+        k = len(S)
+
+    S = S[:k]
+    U = U[:, :k]
     H_functions = []
 
     for i in tqdm(range(len(S)), desc="Extracting eigenfunctions"):
@@ -63,10 +71,8 @@ def compute_tcc_svd(J, P, fx, fy, k):
     return S, H_functions
 
 
-
 def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
                                            dx=DX, dy=DY, sigma=SIGMA, na=NA, k_svd=10):
-
     # 频域坐标
     fx = np.linspace(-0.5 / dx, 0.5 / dx, lx)
     fy = np.linspace(-0.5 / dy, 0.5 / dy, ly)
@@ -96,14 +102,24 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
         # 累加光强贡献
         intensity += s_val * np.abs(filtered_space) ** 2
 
-    # 归一化到[0,1]范围
-    intensity_normalized = (intensity - np.min(intensity)) / (np.max(intensity) - np.min(intensity))
+    # 最终结果
+    result = intensity
 
-    return intensity_normalized
+    # 修复归一化：避免除0
+    intensity_min = np.min(intensity)
+    intensity_max = np.max(intensity)
+
+    if intensity_max - intensity_min > 1e-10:
+        result = (intensity - intensity_min) / (intensity_max - intensity_min)
+    else:
+        print("警告: 光强分布范围过小，使用备选归一化")
+        result = intensity / (intensity_max + 1e-10)  # 避免除0
+
+    return result
+
 
 def photoresist_model(intensity, a=A, Tr=TR):
-
     # 应用sigmoid函数
     resist_pattern = 1 / (1 + np.exp(-a * (intensity - Tr)))
-
     return resist_pattern
+

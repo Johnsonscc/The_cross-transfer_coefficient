@@ -28,11 +28,6 @@ def main():
         initial_mask=initial_mask,
         target_image=target_image,
         learning_rate=ILT_LEARNING_RATE,
-        max_iter=ILT_MAX_ITER,
-        resist_a=ILT_RESIST_A,
-        resist_Tr=ILT_RESIST_Tr,
-        convergence_tol=ILT_CONVERGENCE_TOL,
-        k_svd=ILT_SVD_K
     )
 
     # 最佳掩膜的光刻仿真
