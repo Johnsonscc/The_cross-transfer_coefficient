@@ -1,209 +1,106 @@
+# core/inverse_lithography_gradient.py
 import numpy as np
-from scipy.fft import fft2, ifft2, fftshift, ifftshift
-import logging
+import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
-# 设置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
+class GradientBasedILT:
+    def __init__(self, learning_rate=0.1, max_iter=100, resist_a=10, resist_Tr=0.225):
+        self.learning_rate = learning_rate
+        self.max_iter = max_iter
+        self.resist_a = resist_a
+        self.resist_Tr = resist_Tr
 
-def compute_gradient(mask, target, singular_values, H_functions, lambda_reg=0.01):
-    """
-    计算离散梯度表达式 - 完全重写版本
-    """
-    Ly, Lx = mask.shape
+    def photoresist_model(self, intensity):
+        """可微分的sigmoid光刻胶模型"""
+        return torch.sigmoid(self.resist_a * (intensity - self.resist_Tr))
 
-    # 前向传播：计算光强分布
-    M_fft = fftshift(fft2(mask))
-    intensity = np.zeros((Ly, Lx), dtype=np.float64)
-    eigen_images = []
+    def compute_loss(self, print_image, target_image, mask=None, weight_regularization=0.01):
+        """计算总损失函数"""
+        # L2损失
+        l2_loss = F.mse_loss(print_image, target_image)
 
-    logger.debug("开始前向传播计算光强")
+        # 曲率正则化（可选）
+        curvature_loss = 0
+        if mask is not None:
+            kernel_curv = torch.tensor([[-1 / 16, 5 / 16, -1 / 16],
+                                        [5 / 16, -1.0, 5 / 16],
+                                        [-1 / 16, 5 / 16, -1 / 16]], dtype=torch.float32)
+            curvature = F.conv2d(mask.unsqueeze(0).unsqueeze(0),
+                                 kernel_curv.unsqueeze(0).unsqueeze(0), padding=1)
+            curvature_loss = torch.mean(curvature ** 2)
 
-    for i, (s_val, H_i) in enumerate(zip(singular_values, H_functions)):
-        # 频域滤波
-        filtered_fft = M_fft * H_i
+        total_loss = l2_loss + weight_regularization * curvature_loss
+        return total_loss, l2_loss, curvature_loss
 
-        # 空间域特征图像
-        eigen_image = ifft2(ifftshift(filtered_fft))
-        eigen_images.append(eigen_image)
+    def optimize(self, initial_mask, target_image, simulation_function):
+        """
+        梯度下降优化主函数
 
-        # 累加光强贡献
-        intensity += s_val * np.abs(eigen_image) ** 2
+        Args:
+            initial_mask: 初始掩模
+            target_image: 目标图像
+            simulation_function: 光刻仿真函数
+        """
+        # 转换为PyTorch张量
+        if isinstance(initial_mask, np.ndarray):
+            mask = torch.tensor(initial_mask, dtype=torch.float32, requires_grad=True)
+        else:
+            mask = initial_mask.clone().detach().requires_grad_(True)
 
-    # 计算损失函数
-    data_loss = np.mean((intensity - target) ** 2)
+        if isinstance(target_image, np.ndarray):
+            target = torch.tensor(target_image, dtype=torch.float32)
+        else:
+            target = target_image.clone().detach()
 
-    # 全变分正则化
-    tv_loss = compute_total_variation(mask)
-    total_loss = data_loss + lambda_reg * tv_loss
+        # 优化器
+        optimizer = torch.optim.Adam([mask], lr=self.learning_rate)
+        # 或者使用SGD: optimizer = torch.optim.SGD([mask], lr=self.learning_rate)
 
-    # 反向传播：完全重写梯度计算
-    logger.debug("开始反向传播计算梯度")
+        history = {
+            'loss': [],
+            'l2_loss': [],
+            'curvature_loss': [],
+            'masks': []
+        }
 
-    # 数据损失梯度部分
-    dL_dI = 2 * (intensity - target) / (Lx * Ly)
+        print("Starting gradient-based ILT optimization...")
+        for iteration in tqdm(range(self.max_iter)):
+            optimizer.zero_grad()
 
-    # 重新初始化梯度
-    gradient = np.zeros((Ly, Lx), dtype=np.float64)
+            # 前向传播：光刻仿真
+            aerial_image = simulation_function(mask.detach().numpy())  # 使用你的仿真函数
+            aerial_tensor = torch.tensor(aerial_image, dtype=torch.float32)
 
-    for i, (s_val, H_i, eigen_img) in enumerate(zip(singular_values, H_functions, eigen_images)):
-        # 正确计算伴随场：dL/dE_i = dL/dI * s_val * 2 * E_i^*
-        dL_dE_i = dL_dI * s_val * 2 * eigen_img.conj()
+            # 光刻胶模型
+            print_image = self.photoresist_model(aerial_tensor)
 
-        # 转换到频域
-        dL_dE_i_fft = fftshift(fft2(dL_dE_i))
+            # 计算损失
+            total_loss, l2_loss, curvature_loss = self.compute_loss(
+                print_image, target, mask
+            )
 
-        # 应用伴随光学传递函数：dL/dM_fft = H_i^* * dL/dE_i_fft
-        dL_dM_fft_i = np.conj(H_i) * dL_dE_i_fft
+            # 反向传播
+            total_loss.backward()
+            optimizer.step()
 
-        # 转换回空间域并累加实部
-        dL_dM_i = ifft2(ifftshift(dL_dM_fft_i))
-        gradient += np.real(dL_dM_i)
+            # 投影到[0,1]范围
+            with torch.no_grad():
+                mask.data = torch.clamp(mask.data, 0, 1)
 
-    # 添加正则化梯度
-    reg_gradient = compute_tv_gradient(mask)
-    gradient += lambda_reg * reg_gradient
+            # 记录历史
+            history['loss'].append(total_loss.item())
+            history['l2_loss'].append(l2_loss.item())
+            history['curvature_loss'].append(curvature_loss.item())
 
-    # 梯度检查
-    grad_norm = np.linalg.norm(gradient)
-    logger.debug(f"梯度计算完成: 范数={grad_norm:.6f}")
+            if iteration % 10 == 0:
+                history['masks'].append(mask.detach().numpy().copy())
 
-    return gradient, total_loss
-
-
-def compute_total_variation(mask):
-    """计算全变分正则化损失"""
-    dx = np.diff(mask, axis=1)
-    dy = np.diff(mask, axis=0)
-    tv_loss = np.sum(dx ** 2) + np.sum(dy ** 2)
-    return tv_loss / mask.size
-
-
-def compute_tv_gradient(mask):
-    """计算全变分正则化的梯度"""
-    Ly, Lx = mask.shape
-    gradient = np.zeros((Ly, Lx))
-
-    # 简化但有效的TV梯度计算
-    # x方向
-    grad_x = np.zeros_like(mask)
-    grad_x[:, 1:-1] = mask[:, 2:] - 2 * mask[:, 1:-1] + mask[:, :-2]
-    grad_x[:, 0] = mask[:, 1] - mask[:, 0]
-    grad_x[:, -1] = mask[:, -1] - mask[:, -2]
-
-    # y方向
-    grad_y = np.zeros_like(mask)
-    grad_y[1:-1, :] = mask[2:, :] - 2 * mask[1:-1, :] + mask[:-2, :]
-    grad_y[0, :] = mask[1, :] - mask[0, :]
-    grad_y[-1, :] = mask[-1, :] - mask[-2, :]
-
-    gradient = 2 * (grad_x + grad_y) / (Lx * Ly)
-    return gradient
-
-
-def gradient_descent_optimization(initial_mask, target, singular_values, H_functions,
-                                  learning_rate=0.1, iterations=100, lambda_reg=0.01,
-                                  patience=20, min_delta=1e-6):
-    """
-    基于梯度下降的逆光刻优化 - 完全重写版本
-    """
-    logger.info("开始梯度下降优化")
-
-    mask = initial_mask.copy().astype(np.float64)
-    loss_history = []
-    best_loss = float('inf')
-    best_mask = mask.copy()
-    no_improvement_count = 0
-
-    # 进度条
-    pbar = tqdm(range(iterations), desc="ILT优化进度")
-
-    for iteration in pbar:
-        try:
-            # 计算梯度和损失
-            gradient, current_loss = compute_gradient(mask, target, singular_values,
-                                                      H_functions, lambda_reg)
-
-            # 检查梯度是否为0
-            grad_norm = np.linalg.norm(gradient)
-            if grad_norm < 1e-12:
-                logger.warning(f"梯度接近0 ({grad_norm:.2e})，添加随机扰动")
-                gradient += 1e-6 * np.random.randn(*gradient.shape)
-                grad_norm = np.linalg.norm(gradient)
-
-            # 梯度下降更新 - 添加动量项
-            mask_update = learning_rate * gradient / (grad_norm + 1e-8)  # 归一化
-            mask -= mask_update
-
-            # 投影到可行集 [0, 1]
-            mask = np.clip(mask, 0, 1)
-
-            # 记录损失
-            loss_history.append(current_loss)
-
-            # 早停检查
-            if current_loss < best_loss - min_delta:
-                best_loss = current_loss
-                best_mask = mask.copy()
-                no_improvement_count = 0
-            else:
-                no_improvement_count += 1
-
-            # 更新进度条
-            pbar.set_postfix({
-                '损失': f'{current_loss:.6f}',
-                '最佳损失': f'{best_loss:.6f}',
-                '梯度': f'{grad_norm:.2e}'
-            })
-
-            # 早停条件
-            if no_improvement_count >= patience and iteration > 10:
-                logger.info(f"早停在迭代 {iteration}, 最佳损失: {best_loss:.6f}")
+            # 提前停止检查
+            if iteration > 10 and abs(history['loss'][-1] - history['loss'][-2]) < 1e-6:
+                print(f"Converged at iteration {iteration}")
                 break
 
-        except Exception as e:
-            logger.error(f"迭代 {iteration} 出错: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            break
-
-    logger.info(f"优化完成，最终损失: {best_loss:.6f}")
-    return best_mask, loss_history
-
-
-def inverse_lithography_optimization(initial_mask, target_image,
-                                     lambda_=405, na=0.5, sigma=0.5, dx=7560, dy=7560,
-                                     learning_rate=0.1, iterations=100, k_svd=5, **kwargs):
-    """
-    逆光刻优化主函数 - 修复版本
-    """
-    logger.info("初始化逆光刻优化")
-
-    # 验证输入
-    assert initial_mask.shape == target_image.shape, "掩模和目标图像尺寸不匹配"
-
-    # 导入必要的函数
-    from core.lithography_simulation import compute_tcc_svd, light_source_function, pupil_response_function
-
-    # 计算频域坐标和TCC SVD
-    Ly, Lx = initial_mask.shape
-    fx = np.linspace(-0.5 / dx, 0.5 / dx, Lx)
-    fy = np.linspace(-0.5 / dy, 0.5 / dy, Ly)
-
-    J = lambda fx, fy: light_source_function(fx, fy, sigma, na, lambda_)
-    P = lambda fx, fy: pupil_response_function(fx, fy, na, lambda_)
-
-    logger.info("计算TCC SVD分解")
-    singular_values, H_functions = compute_tcc_svd(J, P, fx, fy, k_svd)
-
-    # 运行优化
-    optimized_mask, loss_history = gradient_descent_optimization(
-        initial_mask, target_image, singular_values, H_functions,
-        learning_rate=learning_rate, iterations=iterations, **kwargs
-    )
-
-    return optimized_mask, loss_history
-
-
+        best_mask = mask.detach().numpy()
+        return best_mask, history
