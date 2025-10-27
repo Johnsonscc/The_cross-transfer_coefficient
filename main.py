@@ -33,22 +33,10 @@ def main():
     # 使用逆光刻优化
     print("Starting inverse lithography optimization...")
     best_mask, optimization_history = inverse_lithography_optimization(
-        initial_mask=initial_mask,
+        initial_mask=initial_mask,  # 从初始掩模开始优化
         target_image=target_image,
-        learning_rate=0.05,
-        iterations=30,  # 少量迭代测试
-        gradient_method="smart",  # 使用智能采样
-        sample_ratio=0.2,  # 采样20%的像素
-        lambda_=LAMBDA,
-        na=NA,
-        sigma=SIGMA,
-        dx=DX,
-        dy=DY,
-        lx=target_image.shape[0],
-        ly=target_image.shape[1],
-        a=A,
-        Tr=TR,
-        k_svd=5  # 减少SVD模式以加速
+        learning_rate=ILT_LEARNING_RATE,
+        iterations=ILT_ITERATIONS,
     )
 
     # 最佳掩膜的光刻仿真
@@ -70,8 +58,6 @@ def main():
                     best_mask, best_aerial_image, best_print_image,
                     PE_initial, PE_best, RESULTS_IMAGE_PATH)
 
-    # 绘制优化历史
-    plot_optimization_history(optimization_history, FITNESS_PLOT_PATH)
 
 
 if __name__ == "__main__":

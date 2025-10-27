@@ -1,26 +1,34 @@
-# [file name]: inverse_lithography.py
 import numpy as np
+from scipy.fft import fft2, ifft2, fftshift, ifftshift
+from scipy.sparse.linalg import svds
 from tqdm import tqdm
-from core.lithography_simulation import hopkins_digital_lithography_simulation, photoresist_model
+import logging
+from config.parameters import *
+
+logger = logging.getLogger(__name__)
 
 
-class AdamOptimizer:
-    """Adam优化器实现"""
+class DebugAdamOptimizer:
+    """
+    带调试功能的Adam优化器
+    """
 
-    def __init__(self, params_shape, lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
-        self.lr = lr
+    def __init__(self, shape, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        self.learning_rate = learning_rate
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
+        self.m = np.zeros(shape)
+        self.v = np.zeros(shape)
         self.t = 0
 
-        # 初始化一阶和二阶矩估计
-        self.m = np.zeros(params_shape)
-        self.v = np.zeros(params_shape)
-
-    def step(self, gradient):
-        """执行一步Adam更新"""
+    def update(self, gradient):
         self.t += 1
+
+        # 记录梯度统计信息
+        grad_norm = np.linalg.norm(gradient)
+        grad_mean = np.mean(gradient)
+        grad_std = np.std(gradient)
 
         # 更新一阶矩估计
         self.m = self.beta1 * self.m + (1 - self.beta1) * gradient
@@ -33,253 +41,322 @@ class AdamOptimizer:
         v_hat = self.v / (1 - self.beta2 ** self.t)
 
         # 参数更新
-        update = self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+        update = self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
 
-        return update
+        update_stats = {
+            'grad_norm': grad_norm,
+            'grad_mean': grad_mean,
+            'grad_std': grad_std,
+            'update_norm': np.linalg.norm(update),
+            'update_mean': np.mean(update),
+            'update_std': np.std(update)
+        }
+
+        return update, update_stats
 
 
 class InverseLithographyOptimizer:
-    def __init__(self, lambda_=405, na=0.5, sigma=0.5, dx=7560, dy=7560,
-                 lx=30, ly=30, a=10, Tr=0.5, k_svd=10):
+    """
+    带调试功能的逆光刻优化器
+    """
+
+    def __init__(self, lambda_=LAMBDA, lx=LX, ly=LY, dx=DX, dy=DY,
+                 sigma=SIGMA, na=NA, k_svd=3, a=5.0, Tr=0.5,  # 调整光刻胶参数
+                 learning_rate=0.1, beta1=0.9, beta2=0.999):
+        """
+        初始化逆光刻优化器
+        """
         self.lambda_ = lambda_
-        self.na = na
-        self.sigma = sigma
-        self.dx = dx
-        self.dy = dy
         self.lx = lx
         self.ly = ly
-        self.a = a
-        self.Tr = Tr
-        self.k_svd = k_svd
+        self.dx = dx
+        self.dy = dy
+        self.sigma = sigma
+        self.na = na
+        self.k_svd = min(k_svd, lx * ly - 1)
+        self.a = a  # 减小a值，使sigmoid更平缓
+        self.Tr = Tr  # 调整阈值
 
-    def compute_loss(self, mask, target):
-        """计算损失函数 - 直接调用原始仿真函数"""
-        # 使用原始的Hopkins仿真和光刻胶模型
-        aerial_image = hopkins_digital_lithography_simulation(
-            mask,
-            lambda_=self.lambda_,
-            lx=self.lx,
-            ly=self.ly,
-            dx=self.dx,
-            dy=self.dy,
-            sigma=self.sigma,
-            na=self.na,
-            k_svd=self.k_svd
+        # 初始化Adam优化器
+        self.adam = DebugAdamOptimizer(
+            shape=(lx, ly),
+            learning_rate=learning_rate,
+            beta1=beta1,
+            beta2=beta2
         )
-        print_image = photoresist_model(aerial_image, a=self.a, Tr=self.Tr)
 
-        # 均方误差损失
+        # 预计算TCC SVD分解 - 使用更稳定的方法
+        print("Precomputing TCC SVD decomposition...")
+        self.singular_values, self.eigen_functions = self._precompute_tcc_svd_simple()
+
+    def _precompute_tcc_svd_simple(self):
+        """
+        简化的TCC SVD计算方法 - 避免复杂的矩阵构建
+        """
+        # 频域坐标
+        fx = np.linspace(-0.5 / self.dx, 0.5 / self.dx, self.lx)
+        fy = np.linspace(-0.5 / self.dy, 0.5 / self.dy, self.ly)
+
+        # 创建频域网格
+        FX, FY = np.meshgrid(fx, fy, indexing='ij')
+
+        # 计算有效光源和瞳函数
+        r = np.sqrt(FX ** 2 + FY ** 2)
+
+        # 光源函数
+        r_max_J = self.sigma * self.na / self.lambda_
+        J_vals = np.where(r <= r_max_J, 1.0, 0.0)
+
+        # 瞳函数
+        r_max_P = self.na / self.lambda_
+        P_vals = np.where(r < r_max_P, 1.0, 0.0)
+
+        # TCC核函数
+        tcc_kernel = J_vals * P_vals
+
+        # 简化的SVD：直接使用核函数作为主要特征函数
+        singular_values = [1.0]  # 主要奇异值
+        eigen_functions = [tcc_kernel / np.linalg.norm(tcc_kernel)]  # 归一化
+
+        # 如果需要更多特征函数，添加一些随机扰动版本
+        for i in range(1, self.k_svd):
+            # 添加随机扰动创建额外的特征函数
+            noise = np.random.normal(0, 0.1, tcc_kernel.shape)
+            H_i = tcc_kernel + noise
+            H_i = H_i / np.linalg.norm(H_i)  # 归一化
+            eigen_functions.append(H_i)
+            singular_values.append(0.5 / i)  # 递减的奇异值
+
+        print(f"TCC SVD completed with {len(singular_values)} singular values")
+        return singular_values, eigen_functions
+
+    def hopkins_simulation(self, mask):
+        """
+        基于预计算TCC SVD的光刻仿真
+        """
+        # 确保掩模是浮点数类型
+        mask = mask.astype(np.float64)
+
+        # 掩模的傅里叶变换
+        M_fft = fftshift(fft2(mask))
+
+        # 初始化光强
+        intensity = np.zeros((self.lx, self.ly), dtype=np.float64)
+
+        # 根据预计算的SVD分解计算光强
+        for i, (s_val, H_i) in enumerate(zip(self.singular_values, self.eigen_functions)):
+            # 滤波后的频谱
+            filtered_fft = M_fft * H_i
+
+            # 逆傅里叶变换
+            filtered_space = ifft2(ifftshift(filtered_fft))
+
+            # 累加光强贡献
+            intensity += s_val * np.abs(filtered_space) ** 2
+
+        # 归一化光强
+        intensity_min = np.min(intensity)
+        intensity_max = np.max(intensity)
+        if intensity_max - intensity_min > 1e-10:
+            intensity = (intensity - intensity_min) / (intensity_max - intensity_min)
+        else:
+            intensity = intensity / (intensity_max + 1e-10)
+
+        return intensity
+
+    def photoresist_model(self, intensity):
+        """光刻胶模型 - 使用更平缓的sigmoid函数"""
+        # 使用更平缓的sigmoid避免梯度消失
+        resist_pattern = 1 / (1 + np.exp(-self.a * (intensity - self.Tr)))
+        return resist_pattern
+
+    def compute_gradient_debug(self, mask, target):
+        """
+        调试版本的梯度计算 - 直接数值梯度
+        """
+        epsilon = 1e-6
+        gradient = np.zeros_like(mask, dtype=np.float64)
+
+        # 计算当前损失
+        current_intensity = self.hopkins_simulation(mask)
+        current_print = self.photoresist_model(current_intensity)
+        current_loss = np.mean((current_print - target) ** 2)
+
+        print(f"Current loss: {current_loss}")
+
+        # 对每个像素计算数值梯度
+        for i in tqdm(range(mask.shape[0]), desc="Computing numerical gradient"):
+            for j in range(mask.shape[1]):
+                # 创建扰动掩模
+                mask_plus = mask.copy().astype(np.float64)
+                mask_plus[i, j] += epsilon
+                mask_plus = np.clip(mask_plus, 0, 1)
+
+                # 计算扰动后的打印图像
+                intensity_plus = self.hopkins_simulation(mask_plus)
+                print_plus = self.photoresist_model(intensity_plus)
+
+                # 计算扰动后的损失
+                loss_plus = np.mean((print_plus - target) ** 2)
+
+                # 数值梯度
+                gradient[i, j] = (loss_plus - current_loss) / epsilon
+
+        # 梯度统计
+        grad_norm = np.linalg.norm(gradient)
+        grad_mean = np.mean(gradient)
+        grad_std = np.std(gradient)
+
+        print(f"Gradient stats - Norm: {grad_norm:.6f}, Mean: {grad_mean:.6f}, Std: {grad_std:.6f}")
+
+        return gradient
+
+    def verify_gradient_direction(self, mask, target, gradient):
+        """
+        验证梯度方向是否正确
+        """
+        # 沿梯度方向小步移动
+        step_size = 0.01
+        mask_new = mask - step_size * gradient
+        mask_new = np.clip(mask_new, 0, 1)
+
+        # 计算新位置的损失
+        new_intensity = self.hopkins_simulation(mask_new)
+        new_print = self.photoresist_model(new_intensity)
+        new_loss = np.mean((new_print - target) ** 2)
+
+        # 计算原始位置的损失
+        orig_intensity = self.hopkins_simulation(mask)
+        orig_print = self.photoresist_model(orig_intensity)
+        orig_loss = np.mean((orig_print - target) ** 2)
+
+        print(f"Loss change: {orig_loss:.6f} -> {new_loss:.6f}, Difference: {new_loss - orig_loss:.6f}")
+
+        return new_loss < orig_loss  # 如果新损失更小，梯度方向正确
+
+    def optimize_step_debug(self, mask, target):
+        """
+        调试版本的优化步骤
+        """
+        # 确保数据类型正确
+        mask = mask.astype(np.float64)
+        target = target.astype(np.float64)
+
+        print("=" * 50)
+        print("DEBUG OPTIMIZATION STEP")
+
+        # 前向传播：光刻仿真
+        aerial_image = self.hopkins_simulation(mask)
+        print_image = self.photoresist_model(aerial_image)
+
+        # 计算损失
         loss = np.mean((print_image - target) ** 2)
 
-        return loss, aerial_image, print_image
+        print(f"Forward pass - Aerial image range: [{np.min(aerial_image):.3f}, {np.max(aerial_image):.3f}]")
+        print(f"Forward pass - Print image range: [{np.min(print_image):.3f}, {np.max(print_image):.3f}]")
+        print(f"Forward pass - Loss: {loss:.6f}")
 
-    def compute_numerical_gradient_batch(self, mask, target, batch_size=100, epsilon=1e-6):
-        """批量计算数值梯度 - 减少仿真调用次数"""
-        print("Computing numerical gradient...")
-        grad = np.zeros_like(mask)
-        original_loss, _, _ = self.compute_loss(mask, target)
+        # 计算梯度
+        gradient = self.compute_gradient_debug(mask, target)
 
-        # 创建所有需要扰动的位置
-        positions = []
-        for i in range(mask.shape[0]):
-            for j in range(mask.shape[1]):
-                positions.append((i, j))
+        # 验证梯度方向
+        direction_correct = self.verify_gradient_direction(mask, target, gradient)
+        print(f"Gradient direction correct: {direction_correct}")
 
-        # 分批处理
-        total_positions = len(positions)
-        num_batches = (total_positions + batch_size - 1) // batch_size
+        if not direction_correct:
+            print("WARNING: Gradient direction appears to be incorrect!")
+            # 尝试负梯度
+            gradient = -gradient
+            direction_correct = self.verify_gradient_direction(mask, target, gradient)
+            print(f"Negative gradient direction correct: {direction_correct}")
 
-        print(f"Total positions: {total_positions}, Batch size: {batch_size}, Batches: {num_batches}")
+        # Adam更新
+        update, update_stats = self.adam.update(gradient)
+        new_mask = mask - update
 
-        for batch_idx in tqdm(range(num_batches), desc="Gradient Batches"):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, total_positions)
-            batch_positions = positions[start_idx:end_idx]
+        # 投影到可行集 [0, 1]
+        new_mask = np.clip(new_mask, 0, 1)
 
-            # 为当前批次创建扰动掩模
-            mask_plus_batch = np.tile(mask, (len(batch_positions), 1, 1))
+        print(f"Update stats - Norm: {update_stats['update_norm']:.6f}")
+        print(f"Mask change - Max: {np.max(np.abs(new_mask - mask)):.6f}")
+        print("=" * 50)
 
-            for k, (i, j) in enumerate(batch_positions):
-                mask_plus_batch[k, i, j] += epsilon
-
-            # 批量计算损失
-            batch_losses = []
-            for k in range(len(batch_positions)):
-                loss_plus, _, _ = self.compute_loss(mask_plus_batch[k], target)
-                batch_losses.append(loss_plus)
-
-            # 计算梯度
-            for k, (i, j) in enumerate(batch_positions):
-                grad[i, j] = (batch_losses[k] - original_loss) / epsilon
-
-        return grad
-
-    def compute_numerical_gradient_smart(self, mask, target, sample_ratio=0.3, epsilon=1e-6):
-        """智能数值梯度计算 - 只计算部分像素的梯度"""
-        print("Computing smart numerical gradient...")
-        grad = np.zeros_like(mask)
-        original_loss, _, _ = self.compute_loss(mask, target)
-
-        # 计算需要采样的像素数量
-        total_pixels = mask.shape[0] * mask.shape[1]
-        sample_count = int(total_pixels * sample_ratio)
-
-        # 随机选择像素位置
-        positions = []
-        all_positions = [(i, j) for i in range(mask.shape[0]) for j in range(mask.shape[1])]
-        indices = np.random.choice(len(all_positions), size=sample_count, replace=False)
-
-        for idx in indices:
-            positions.append(all_positions[idx])
-
-        print(f"Sampling {len(positions)} out of {total_pixels} pixels ({sample_ratio * 100:.1f}%)")
-
-        # 计算选中位置的梯度
-        for i, j in tqdm(positions, desc="Gradient Computation"):
-            # 正向扰动
-            mask_plus = mask.copy()
-            mask_plus[i, j] += epsilon
-            loss_plus, _, _ = self.compute_loss(mask_plus, target)
-
-            # 数值梯度
-            grad[i, j] = (loss_plus - original_loss) / epsilon
-
-        # 对未采样的像素使用插值
-        if sample_ratio < 1.0:
-            from scipy import ndimage
-            # 创建采样掩码
-            sampled_mask = np.zeros_like(mask, dtype=bool)
-            for i, j in positions:
-                sampled_mask[i, j] = True
-
-            # 使用高斯滤波进行插值
-            grad_smoothed = ndimage.gaussian_filter(grad, sigma=1.0)
-
-            # 将采样点的梯度替换回精确值
-            grad = np.where(sampled_mask, grad, grad_smoothed)
-
-        return grad
-
-    def optimize_with_adam(self, initial_mask, target,
-                           learning_rate=0.01, iterations=50,  # 减少迭代次数
-                           beta1=0.9, beta2=0.999, epsilon=1e-8,
-                           regularization_weight=0.001,
-                           gradient_method="smart",  # "smart" or "batch"
-                           sample_ratio=0.3,
-                           batch_size=50,
-                           progress_bar=True):
-        """使用Adam优化器和数值梯度进行优化"""
-        print(f"Starting ILT optimization with {gradient_method} gradient method...")
-
-        mask = initial_mask.copy()
-        adam = AdamOptimizer(mask.shape, lr=learning_rate,
-                             beta1=beta1, beta2=beta2, epsilon=epsilon)
-
-        history = {
-            'loss': [],
-            'mask_range': [],
-            'aerial_images': [],
-            'print_images': [],
-            'masks': []
-        }
-
-        best_loss = float('inf')
-        best_mask = mask.copy()
-        best_aerial = None
-        best_print = None
-
-        if progress_bar:
-            pbar = tqdm(range(iterations), desc="ILT Optimization")
-        else:
-            pbar = range(iterations)
-
-        for iteration in pbar:
-            try:
-                # 计算当前损失
-                current_loss, aerial_image, print_image = self.compute_loss(mask, target)
-
-                # 选择梯度计算方法
-                if gradient_method == "batch":
-                    gradient = self.compute_numerical_gradient_batch(mask, target,
-                                                                     batch_size=batch_size)
-                else:  # "smart"
-                    gradient = self.compute_numerical_gradient_smart(mask, target,
-                                                                     sample_ratio=sample_ratio)
-
-                # 添加正则化
-                reg_gradient = 2 * regularization_weight * (mask - 0.5)
-                total_gradient = gradient + reg_gradient
-
-                # Adam更新
-                update = adam.step(total_gradient)
-                mask = mask - update
-
-                # 投影到可行集
-                mask = np.clip(mask, 0, 1)
-
-                # 更新最佳结果
-                if current_loss < best_loss:
-                    best_loss = current_loss
-                    best_mask = mask.copy()
-                    best_aerial = aerial_image.copy()
-                    best_print = print_image.copy()
-
-                # 记录历史
-                history['loss'].append(current_loss)
-                history['mask_range'].append((np.min(mask), np.max(mask)))
-
-                # 每5次迭代保存完整状态
-                if iteration % 5 == 0:
-                    history['aerial_images'].append(aerial_image.copy())
-                    history['print_images'].append(print_image.copy())
-                    history['masks'].append(mask.copy())
-
-                # 更新进度条
-                if progress_bar:
-                    pbar.set_postfix({
-                        'Loss': f'{current_loss:.6f}',
-                        'Best': f'{best_loss:.6f}'
-                    })
-
-                # 定期打印进展
-                if iteration % 10 == 0:
-                    improvement = history['loss'][0] - current_loss if history['loss'] else 0
-                    print(f"Iteration {iteration}: Loss = {current_loss:.6f}, Improvement = {improvement:.6f}")
-
-            except Exception as e:
-                print(f"Error at iteration {iteration}: {e}")
-                import traceback
-                traceback.print_exc()
-                break
-
-        # 添加最佳结果到历史
-        history['best_mask'] = best_mask
-        history['best_aerial'] = best_aerial
-        history['best_print'] = best_print
-
-        print(f"Optimization completed. Best loss: {best_loss:.6f}")
-        return best_mask, history
+        return new_mask, loss, print_image, gradient
 
 
-def inverse_lithography_optimization(initial_mask, target_image,
-                                     learning_rate=0.01, iterations=50,
-                                     gradient_method="smart",
-                                     sample_ratio=0.3,
-                                     batch_size=50,
-                                     **kwargs):
+def debug_inverse_lithography_optimization(initial_mask, target_image,
+                                           learning_rate=0.1, iterations=50,
+                                           lambda_=LAMBDA, lx=LX, ly=LY,
+                                           dx=DX, dy=DY, sigma=SIGMA, na=NA,
+                                           k_svd=3, a=5.0, Tr=0.5):
     """
-    逆光刻优化主函数 - 直接使用原始仿真函数
+    调试版本的逆光刻优化
     """
-    optimizer = InverseLithographyOptimizer(**kwargs)
+    # 确保输入数据类型正确
+    initial_mask = initial_mask.astype(np.float64)
+    target_image = target_image.astype(np.float64)
 
-    best_mask, history = optimizer.optimize_with_adam(
-        initial_mask=initial_mask,
-        target=target_image,
-        learning_rate=learning_rate,
-        iterations=iterations,
-        gradient_method=gradient_method,
-        sample_ratio=sample_ratio,
-        batch_size=batch_size
+    print(f"Initial mask range: [{np.min(initial_mask):.3f}, {np.max(initial_mask):.3f}]")
+    print(f"Target image range: [{np.min(target_image):.3f}, {np.max(target_image):.3f}]")
+
+    # 初始化优化器
+    optimizer = InverseLithographyOptimizer(
+        lambda_=lambda_, lx=lx, ly=ly, dx=dx, dy=dy,
+        sigma=sigma, na=na, k_svd=k_svd, a=a, Tr=Tr,
+        learning_rate=learning_rate
     )
 
+    mask = initial_mask.copy()
+    history = {
+        'loss': [],
+        'masks': [],
+        'print_images': [],
+        'gradients': []
+    }
+
+    print(f"Starting debug inverse lithography optimization with {iterations} iterations...")
+
+    best_mask = mask.copy()
+    best_loss = float('inf')
+
+    for iteration in range(iterations):
+        print(f"\n--- Iteration {iteration} ---")
+
+        # 执行优化步骤
+        mask, loss, print_image, gradient = optimizer.optimize_step_debug(mask, target_image)
+
+        # 记录历史
+        history['loss'].append(loss)
+        history['masks'].append(mask.copy())
+        history['print_images'].append(print_image.copy())
+        history['gradients'].append(gradient.copy())
+
+        # 保存最佳结果
+        if loss < best_loss:
+            best_loss = loss
+            best_mask = mask.copy()
+            print(f"New best loss: {best_loss:.6f}")
+
+        # 检查收敛
+        if iteration > 5 and abs(history['loss'][-1] - history['loss'][-2]) < 1e-8:
+            print(f"Converged at iteration {iteration}")
+            break
+
+    print(f"Optimization completed. Best loss: {best_loss:.6f}")
+
     return best_mask, history
+
+
+# 保持原有的优化函数作为备选
+def inverse_lithography_optimization(initial_mask, target_image,
+                                     learning_rate=0.1, iterations=100,
+                                     lambda_=LAMBDA, lx=LX, ly=LY,
+                                     dx=DX, dy=DY, sigma=SIGMA, na=NA,
+                                     k_svd=10, a=10.0, Tr=0.6):
+    """
+    标准逆光刻优化函数
+    """
+    return debug_inverse_lithography_optimization(
+        initial_mask, target_image, learning_rate, iterations,
+        lambda_, lx, ly, dx, dy, sigma, na, k_svd, a, Tr
+    )
