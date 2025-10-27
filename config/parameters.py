@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 LAMBDA = 405  # 波长（单位：纳米）
 Z = 803000000  # 距离（单位：纳米）
 DX = DY = 7560  # 像素尺寸（单位：纳米）
-LX = LY = 100  # 图像尺寸（单位：像素）
+LX = LY = 30  # 图像尺寸（单位：像素）
 N = 1.5  # 折射率（无量纲）
 SIGMA = 0.5  # 部分相干因子（无量纲）
 NA = 0.5  # 数值孔径（无量纲）
@@ -26,11 +26,11 @@ ILT_ITERATIONS = 500
 ILT_REGULARIZATION_WEIGHT = 0.01
 
 # 文件路径
-INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/mask05.png"
-TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/mask05.png"
-OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_mask05.png"
-RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_mask05.png"
-FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_mask05.png"
+INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/t.png"
+TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/t.png"
+OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_t.png"
+RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_t.png"
+FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_t.png"
 
 # 可视化参数
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为SimHei
