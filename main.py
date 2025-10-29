@@ -4,7 +4,7 @@ from config.parameters import *
 from utils.image_processing import load_image, save_image
 from core.lithography_simulation import hopkins_digital_lithography_simulation, photoresist_model
 from core.inverse_lithography import inverse_lithography_optimization
-from utils.visualization import plot_comparison
+from utils.visualization import plot_comparison,plot_optimization_history
 
 
 def main():
@@ -21,9 +21,6 @@ def main():
     aerial_image_initial = hopkins_digital_lithography_simulation(initial_mask)
     print_image_initial = photoresist_model(aerial_image_initial)
     PE_initial = np.sum((target_image - print_image_initial) ** 2)
-
-    # 梯度检查
-    #analytical_grad, numerical_grad = optimizer.gradient_check(initial_mask, target_image)
 
     # 使用逆光刻优化
     print("Starting inverse lithography optimization...")
@@ -52,6 +49,7 @@ def main():
                     best_mask, best_aerial_image, best_print_image,
                     PE_initial, PE_best, RESULTS_IMAGE_PATH)
 
+    plot_optimization_history(history,FITNESS_PLOT_PATH)
 
 
 if __name__ == "__main__":

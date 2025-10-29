@@ -64,7 +64,7 @@ def compute_tcc_svd(J, P, fx, fy, k):
     U = U[:, :k]
     H_functions = []
 
-    for i in tqdm(range(len(S)), desc="Extracting eigenfunctions"):
+    for i in range(len(S)):
         H_i = U[:, i].reshape(Lx, Ly)
         H_functions.append(H_i)
 

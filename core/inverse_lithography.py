@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class InverseLithographyOptimizer:
     """
-    逆光刻优化器 - 基于完整数学公式的解析梯度计算
+    逆光刻优化器 基于解析梯度计算
     """
 
     def __init__(self, lambda_=LAMBDA, na=NA, sigma=SIGMA, dx=DX, dy=DY,
@@ -36,27 +36,10 @@ class InverseLithographyOptimizer:
 
         logger.info("InverseLithographyOptimizer initialized")
 
-    def _precompute_tcc_svd(self):
-        """预计算TCC的SVD分解"""
-        print("Precomputing TCC SVD decomposition...")
-
-        # 频域坐标
-        fx = np.linspace(-0.5 / self.dx, 0.5 / self.dx, self.lx)
-        fy = np.linspace(-0.5 / self.dy, 0.5 / self.dy, self.ly)
-
-        # 完整计算TCC矩阵
-        TCC_4d = self._compute_full_tcc_matrix(fx, fy)
-
-        # 对TCC矩阵进行SVD分解
-        self.singular_values, self.eigen_functions = self._svd_of_tcc_matrix(TCC_4d, self.k_svd)
-
-        print(f"TCC SVD precomputation completed with {len(self.singular_values)} singular values")
-
     def _compute_full_tcc_matrix(self, fx, fy):
-        """计算完整的4D TCC矩阵"""
-        Lx, Ly = len(fx), len(fy)
 
         # 创建频域网格
+        Lx, Ly = len(fx), len(fy)
         FX, FY = np.meshgrid(fx, fy, indexing='ij')
 
         # 计算光源函数 J(f,g)
@@ -87,11 +70,24 @@ class InverseLithographyOptimizer:
 
         return TCC_4d
 
+    def _precompute_tcc_svd(self):
+
+        # 频域坐标
+        fx = np.linspace(-0.5 / self.dx, 0.5 / self.dx, self.lx)
+        fy = np.linspace(-0.5 / self.dy, 0.5 / self.dy, self.ly)
+
+        # 完整计算TCC矩阵
+        TCC_4d = self._compute_full_tcc_matrix(fx, fy)
+
+        # 对TCC矩阵进行SVD分解
+        self.singular_values, self.eigen_functions = self._svd_of_tcc_matrix(TCC_4d, self.k_svd)
+
+        print(f"TCC SVD precomputation completed with {len(self.singular_values)} singular values")
+
     def _svd_of_tcc_matrix(self, TCC_4d, k):
         """对4D TCC矩阵进行SVD分解"""
         Lx, Ly, _, _ = TCC_4d.shape
 
-        print("Reshaping TCC matrix for SVD...")
         TCC_2d = TCC_4d.reshape(Lx * Ly, Lx * Ly)
 
         print("Performing SVD decomposition...")
@@ -104,14 +100,15 @@ class InverseLithographyOptimizer:
         U = U[:, idx]
 
         H_functions = []
-        for i in tqdm(range(len(s)), desc="Extracting eigenfunctions"):
+        for i in range(len(s)):
             H_i = U[:, i].reshape(Lx, Ly)
             H_functions.append(H_i)
 
         return s, H_functions
 
     def hopkins_simulation(self, mask):
-        """Hopkins光刻仿真"""
+
+        #Hopkins光刻仿真
         M_fft = fftshift(fft2(mask))
         intensity = np.zeros((self.lx, self.ly), dtype=np.float64)
 
@@ -132,7 +129,7 @@ class InverseLithographyOptimizer:
         return result
 
     def photoresist_model(self, intensity):
-        """光刻胶模型 - sigmoid函数"""
+        #光刻胶模型 - sigmoid函数
         return 1 / (1 + np.exp(-self.a * (intensity - self.tr)))
 
     def _compute_analytical_gradient(self, mask, target):
@@ -229,10 +226,8 @@ class InverseLithographyOptimizer:
         return self._compute_analytical_gradient(mask, target)
 
     def verify_gradient_analytical(self, mask, target, epsilon=1e-6):
-        """
-        验证解析梯度的正确性
-        通过数值梯度进行验证
-        """
+        #验证解析梯度的正确性
+
         print("Verifying analytical gradient...")
 
         # 解析梯度
@@ -319,49 +314,11 @@ class InverseLithographyOptimizer:
         print(f"Optimization completed. Best loss: {best_loss:.6f}")
         return best_mask, history
 
-    def analyze_optimization_result(self, initial_mask, optimized_mask, target):
-        """
-        分析优化结果
-        """
-        print("\n=== Optimization Analysis ===")
-
-        # 初始状态
-        aerial_initial = self.hopkins_simulation(initial_mask)
-        printed_initial = self.photoresist_model(aerial_initial)
-        loss_initial, _, _, _ = self.compute_loss_and_gradient(initial_mask, target)
-
-        # 优化后状态
-        aerial_optimized = self.hopkins_simulation(optimized_mask)
-        printed_optimized = self.photoresist_model(aerial_optimized)
-        loss_optimized, _, _, _ = self.compute_loss_and_gradient(optimized_mask, target)
-
-        # 掩模变化分析
-        mask_change = np.abs(optimized_mask - initial_mask)
-
-        # 辅助图形统计
-        assist_features = np.sum((optimized_mask > 0.2) & (optimized_mask < 0.8))
-
-        print(f"Initial loss: {loss_initial:.6f}")
-        print(f"Optimized loss: {loss_optimized:.6f}")
-        print(
-            f"Improvement: {loss_initial - loss_optimized:.6f} ({((loss_initial - loss_optimized) / loss_initial * 100):.2f}%)")
-        print(f"Mask change - Max: {np.max(mask_change):.3f}, Mean: {np.mean(mask_change):.3f}")
-        print(f"Assist features detected: {assist_features}")
-
-        return {
-            'initial': {'aerial': aerial_initial, 'printed': printed_initial, 'loss': loss_initial},
-            'optimized': {'aerial': aerial_optimized, 'printed': printed_optimized, 'loss': loss_optimized},
-            'mask_change': mask_change,
-            'assist_features': assist_features
-        }
-
 
 def inverse_lithography_optimization(initial_mask, target_image,
                                      learning_rate=ILT_LEARNING_RATE,
                                      max_iterations=ILT_MAX_ITERATIONS):
-    """
-    逆光刻优化主函数 - 使用解析梯度
-    """
+    #逆光刻优化主函数 - 使用解析梯度
     optimizer = InverseLithographyOptimizer()
 
     # 执行优化

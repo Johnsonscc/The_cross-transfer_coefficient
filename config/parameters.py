@@ -12,7 +12,7 @@ NA = 0.5  # 数值孔径（无量纲）
 
 # 光刻胶参数
 A = 10.0            # sigmoid函数梯度
-TR = 0.6            # 阈值参数
+TR = 0.5            # 阈值参数
 
 # DMD调制参数
 WX = 7560  # 微镜宽度（单位：纳米）
@@ -24,7 +24,7 @@ TY = 8560  # 微镜周期（y方向）（单位：纳米）
 ILT_LEARNING_RATE = 0.1
 ILT_CONVERGENCE_TOL = 1e-6
 ILT_K_SVD = 3
-ILT_MAX_ITERATIONS=200
+ILT_MAX_ITERATIONS=1000
 
 
 # 文件路径

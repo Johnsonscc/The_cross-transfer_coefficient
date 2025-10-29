@@ -1,39 +1,36 @@
 import matplotlib.pyplot as plt
 from config.parameters import *
-import matplotlib.pyplot as plt
-from scipy.ndimage import sobel
+import numpy as np
 
-def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simulated_image,
+
+def plot_comparison(target_image, aerial_image_initial, print_image_initial,
                     best_mask, best_simulated_image, optimized_binary_simulated_image,
                     pe_initial, pe_best, save_path=None):
-    plt.figure(figsize=(24, 18))
+    """简化比较图 - 只显示关键结果"""
+    plt.figure(figsize=(18, 12))
 
     # 目标图像
     plt.subplot(231)
-    plt.imshow(initial_mask, cmap='gray')
-    plt.title('Original Image')
+    plt.imshow(target_image, cmap='gray')
+    plt.title('Target Image')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
 
     # 原始掩膜曝光后的图像
     plt.subplot(232)
-    plt.imshow(simulated_image_initial, cmap='gray')
-    plt.title('Image after Exposure from Original Mask')
+    plt.imshow(aerial_image_initial, cmap='gray')
+    plt.title('Aerial Image (Original)')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
 
     # 原始掩膜曝光后的二值图像
     plt.subplot(233)
-    plt.imshow(initial_binary_simulated_image, cmap='gray')
-    plt.title('Printed image after photoresist from Original Mask')
+    plt.imshow(print_image_initial, cmap='gray')
+    plt.title('Printed Image (Original)')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
-
-    #添加PE文本
-    ax = plt.gca()
-    text_str=f'PE= {pe_initial:.2f}'
-    ax.text(0.05, 0.95, text_str, transform=ax.transAxes)
-
+    plt.text(0.05, 0.95, f'PE = {pe_initial:.2f}', transform=plt.gca().transAxes,
+             bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
 
     # 优化后的掩膜
     plt.subplot(234)
@@ -45,69 +42,66 @@ def plot_comparison(initial_mask, simulated_image_initial, initial_binary_simula
     # 优化掩膜曝光后的图像
     plt.subplot(235)
     plt.imshow(best_simulated_image, cmap='gray')
-    plt.title('Image after Exposure from Optimized Mask')
+    plt.title('Aerial Image (Optimized)')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
 
     # 优化掩膜曝光后的二值图像
     plt.subplot(236)
     plt.imshow(optimized_binary_simulated_image, cmap='gray')
-    plt.title('Printed image after photoresist from Optimized Mask')
+    plt.title('Printed Image (Optimized)')
     plt.xlabel('X Coordinate')
     plt.ylabel('Y Coordinate')
 
-    # 添加PE文本
-    ax = plt.gca()
-    text_str=f'PE= {pe_best:.2f}'
-    ax.text(0.05, 0.95, text_str, transform=ax.transAxes)
+    plt.text(0.05, 0.95, f'PE = {pe_best:.2f}',transform=plt.gca().transAxes,
+             bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
+
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
 
     plt.show()
 
 
 def plot_optimization_history(history, save_path=None):
-    """绘制优化历史"""
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    """简化优化历史 - 只显示损失和梯度"""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-    # 损失曲线
-    axes[0, 0].plot(history['loss'])
-    axes[0, 0].set_title('Loss Evolution')
-    axes[0, 0].set_xlabel('Iteration')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].set_yscale('log')
-    axes[0, 0].grid(True)
+    # 确保有损失数据
+    if not history or 'loss' not in history or len(history['loss']) == 0:
+        print("No optimization history data available")
+        return
 
-    # 掩模演变（显示几个关键迭代）
-    if len(history['mask']) > 0:
-        num_masks = min(4, len(history['mask']))
-        for i in range(num_masks):
-            idx = i * len(history['mask']) // num_masks
-            axes[0, 1].imshow(history['mask'][idx], cmap='gray',
-                              extent=[0, 1, 0, 1], alpha=0.7)
-        axes[0, 1].set_title('Mask Evolution')
-        axes[0, 1].set_xlabel('X')
-        axes[0, 1].set_ylabel('Y')
+    # 1. 损失曲线
+    iterations = range(len(history['loss']))
+    ax1.plot(iterations, history['loss'], 'b-', linewidth=2, label='Loss')
+    ax1.set_title('Loss Evolution')
+    ax1.set_xlabel('Iteration')
+    ax1.set_ylabel('Loss')
+    ax1.set_yscale('log')
+    ax1.grid(True, alpha=0.3)
 
-    # 打印图像演变
-    if len(history['print_image']) > 0:
-        num_images = min(4, len(history['print_image']))
-        for i in range(num_images):
-            idx = i * len(history['print_image']) // num_images
-            axes[1, 0].imshow(history['print_image'][idx], cmap='gray',
-                              extent=[0, 1, 0, 1], alpha=0.7)
-        axes[1, 0].set_title('Print Image Evolution')
-        axes[1, 0].set_xlabel('X')
-        axes[1, 0].set_ylabel('Y')
+    # 2. 梯度信息
+    if 'gradient_norms' in history and len(history['gradient_norms']) > 0:
+        # 绘制梯度范数
+        ax2.plot(iterations[:len(history['gradient_norms'])],
+                 history['gradient_norms'], 'g-', linewidth=2, label='Gradient Norm')
+        ax2.set_title('Gradient Norm Evolution')
+        ax2.set_xlabel('Iteration')
+        ax2.set_ylabel('Gradient Norm')
+        ax2.set_yscale('log')
+        ax2.grid(True, alpha=0.3)
 
-    # 最终掩模分布
-    if len(history['mask']) > 0:
-        axes[1, 1].hist(history['mask'][-1].flatten(), bins=50, alpha=0.7)
-        axes[1, 1].set_title('Final Mask Distribution')
-        axes[1, 1].set_xlabel('Mask Value')
-        axes[1, 1].set_ylabel('Frequency')
+    else:
+        # 如果没有梯度范数数据，显示收敛分析
+        loss_diff = np.diff(history['loss'])
+        ax2.plot(iterations[1:], loss_diff, 'r-', linewidth=2, label='Loss Change')
+        ax2.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+        ax2.set_title('Loss Change per Iteration')
+        ax2.set_xlabel('Iteration')
+        ax2.set_ylabel('Δ Loss')
+        ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
