@@ -3,8 +3,8 @@ import numpy as np
 from config.parameters import *
 from utils.image_processing import load_image, save_image
 from core.lithography_simulation import hopkins_digital_lithography_simulation, photoresist_model
-from core.inverse_lithography import inverse_lithography_optimization,InverseLithographyOptimizer
-from utils.visualization import plot_comparison,plot_optimization_history
+from core.inverse_lithography import inverse_lithography_optimization
+from utils.visualization import plot_comparison
 
 
 def main():
@@ -22,21 +22,15 @@ def main():
     print_image_initial = photoresist_model(aerial_image_initial)
     PE_initial = np.sum((target_image - print_image_initial) ** 2)
 
-    # 创建优化器并检查梯度
-    optimizer = InverseLithographyOptimizer(
-        lambda_=LAMBDA, na=NA, sigma=SIGMA, dx=DX, dy=DY,
-        lx=LX, ly=LY, a=A, Tr=TR, k_svd=10
-    )
     # 梯度检查
     #analytical_grad, numerical_grad = optimizer.gradient_check(initial_mask, target_image)
 
     # 使用逆光刻优化
     print("Starting inverse lithography optimization...")
-    best_mask, optimization_history = inverse_lithography_optimization(
-        initial_mask=initial_mask,  # 从初始掩模开始优化
-        target_image=target_image,
-        learning_rate=ILT_LEARNING_RATE,
-        iterations=ILT_ITERATIONS,
+
+    best_mask, history = inverse_lithography_optimization(
+        initial_mask=initial_mask,
+        target_image=target_image
     )
 
     # 最佳掩膜的光刻仿真
