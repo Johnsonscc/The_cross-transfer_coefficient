@@ -39,7 +39,7 @@ def main():
     # 结束计时
     end_time = time.time()
     print(f'Running time: {end_time - start_time:.3f} seconds')
-    print(f'Initial PE: {PE_initial}, Best PE: {PE_best}')
+    print(f' Initial PE: {PE_initial}, Best PE: {PE_best}')
 
     # 保存优化后的掩膜
     save_image(best_mask, OUTPUT_MASK_PATH)

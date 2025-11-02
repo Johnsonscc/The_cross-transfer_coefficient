@@ -16,11 +16,11 @@ rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为SimHei
 rcParams['axes.unicode_minus'] = False  # 解决保存图像是负号'-'显示为方块的问题
 
 # Step 1: 导入初始掩膜图像和目标图像
-initial_mask = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/hexagonal.png")
+initial_mask = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/cell0.png")
 if len(initial_mask.shape)>2:
     initial_mask = rgb2gray(initial_mask)
 
-target_image = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/hexagonal.png")
+target_image = iio.imread("/Users/johnson/Desktop/project/The_cross-transfer_coefficient/data/input/cell0.png")
 if len(target_image.shape)>2:
     target_image = rgb2gray(target_image)
 
@@ -75,7 +75,7 @@ def hopkins_digital_lithography_simulation(mask, lambda_, Lx, Ly, z, dx, dy, n, 
 lambda_ = 405  # 波长（单位：纳米）
 z = 803000000  # 距离（单位：纳米），这里是假设值
 dx = dy = 7560  # 每个微镜的尺寸（单位：纳米）
-Lx = Ly = 30  # 图像尺寸（单位：像素）
+Lx = Ly = 2048  # 图像尺寸（单位：像素）
 n = 1.5  # 折射率（无量纲）
 sigma = 0.5  # 部分相干因子（无量纲）
 NA = 0.5  # 数值孔径（无量纲）
@@ -87,11 +87,15 @@ simulated_image_initial = hopkins_digital_lithography_simulation(initial_mask, l
 threshold = 0.5 * np.max(simulated_image_initial)  # 定义阈值
 binary_image_initial = binarize_image(simulated_image_initial, threshold)
 PE_initial = np.sum(np.abs(binary_image_initial.astype(np.float32) - target_image.astype(np.float32)))
-
+print(f'Initial PE: {PE_initial}')
+# 结束时间
+end_time = time.time()
+print('Running time: %.3f seconds' % (end_time - start_time))
 # 使用相同的阈值进行二值化
 simulated_image = simulated_image_initial
 initial_binary_simulated_image = binarize_image(simulated_image, threshold)
 
+'''
 #引入噪声到初始种群
 def create_individual_with_noise(initial_mask_flat, noise_scale=0.02):
     noise = np.random.normal(0, noise_scale, size=initial_mask_flat.shape)
@@ -128,11 +132,9 @@ stats.register("std", np.std)
 stats.register("min", np.min)
 stats.register("max", np.max)
 
-pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.4, mutpb=0.4 , ngen=100, stats=stats, halloffame=hof, verbose=True)
+pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.4, mutpb=0.4 , ngen=10, stats=stats, halloffame=hof, verbose=True)
 
-# 结束时间
-end_time = time.time()
-print('Running time: %.3f seconds' % (end_time - start_time))
+
 
 # Step 5: 输出优化后的掩膜，并进行光刻仿真，比较优化前后的图形偏差PE
 best_mask = np.array(hof[0], dtype=np.float32).reshape((Lx, Ly))
@@ -155,6 +157,7 @@ optimized_binary_mask = binarize_image(best_mask, threshold)
 
 # 优化后的图像进行光刻仿真后的二值图像
 optimized_binary_simulated_image = binarize_image(best_simulated_image, threshold)
+'''
 
 # 设置图像、文字的清晰度以及字体
 plt.rcParams['figure.dpi'] = 300
@@ -182,7 +185,10 @@ plt.imshow(initial_binary_simulated_image, cmap='gray')
 plt.title('Binary Image after Exposure from Original Mask')
 plt.xlabel('X Coordinate')
 plt.ylabel('Y Coordinate')
+plt.text(0.05, 0.95, f'PE = {PE_initial:.2f}', transform=plt.gca().transAxes,
+         bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
 
+'''
 # Optimized Mask
 plt.subplot(234)
 plt.imshow(best_mask, cmap='gray')
@@ -203,10 +209,13 @@ plt.imshow(optimized_binary_simulated_image, cmap='gray')
 plt.title('Binary Image after Exposure from Optimized Mask')
 plt.xlabel('X Coordinate')
 plt.ylabel('Y Coordinate')
-#plt.text(0, optimized_binary_simulated_image.shape[0], f'PE : {PE_best}', verticalalignment='bottom', horizontalalignment='left', color='red')  # Add PE value to the image
+'''
 
+plt.tight_layout()
+#plt.text(0, optimized_binary_simulated_image.shape[0], f'PE : {PE_best}', verticalalignment='bottom', horizontalalignment='left', color='red')  # Add PE value to the image
+plt.savefig("1.png")
 plt.tight_layout()  # Ensure spacing between subplots
-# plt.savefig("1.png")
+
 plt.show()
 
 # Plotting the fitness evolution

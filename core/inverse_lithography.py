@@ -70,20 +70,6 @@ class InverseLithographyOptimizer:
 
         return TCC_4d
 
-    def _precompute_tcc_svd(self):
-
-        # 频域坐标
-        fx = np.linspace(-0.5 / self.dx, 0.5 / self.dx, self.lx)
-        fy = np.linspace(-0.5 / self.dy, 0.5 / self.dy, self.ly)
-
-        # 完整计算TCC矩阵
-        TCC_4d = self._compute_full_tcc_matrix(fx, fy)
-
-        # 对TCC矩阵进行SVD分解
-        self.singular_values, self.eigen_functions = self._svd_of_tcc_matrix(TCC_4d, self.k_svd)
-
-        print(f"TCC SVD precomputation completed with {len(self.singular_values)} singular values")
-
     def _svd_of_tcc_matrix(self, TCC_4d, k):
         """对4D TCC矩阵进行SVD分解"""
         Lx, Ly, _, _ = TCC_4d.shape
@@ -106,41 +92,27 @@ class InverseLithographyOptimizer:
 
         return s, H_functions
 
-    def hopkins_simulation(self, mask):
+    def _precompute_tcc_svd(self):
 
-        #Hopkins光刻仿真
-        M_fft = fftshift(fft2(mask))
-        intensity = np.zeros((self.lx, self.ly), dtype=np.float64)
+        # 频域坐标
+        fx = np.linspace(-0.5 / self.dx, 0.5 / self.dx, self.lx)
+        fy = np.linspace(-0.5 / self.dy, 0.5 / self.dy, self.ly)
 
-        for i, (s_val, H_i) in enumerate(zip(self.singular_values, self.eigen_functions)):
-            filtered_fft = M_fft * H_i
-            filtered_space = ifft2(ifftshift(filtered_fft))
-            intensity += s_val * np.abs(filtered_space) ** 2
+        # 完整计算TCC矩阵
+        TCC_4d = self._compute_full_tcc_matrix(fx, fy)
 
-        # 归一化
-        intensity_min = np.min(intensity)
-        intensity_max = np.max(intensity)
+        # 对TCC矩阵进行SVD分解
+        self.singular_values, self.eigen_functions = self._svd_of_tcc_matrix(TCC_4d, self.k_svd)
 
-        if intensity_max - intensity_min > 1e-10:
-            result = (intensity - intensity_min) / (intensity_max - intensity_min)
-        else:
-            result = intensity / (intensity_max + 1e-10)
-
-        return result
+        print(f"TCC SVD precomputation completed with {len(self.singular_values)} singular values")
 
     def photoresist_model(self, intensity):
         #光刻胶模型 - sigmoid函数
         return 1 / (1 + np.exp(-self.a * (intensity - self.tr)))
 
     def _compute_analytical_gradient(self, mask, target):
-        """
-        基于完整数学公式的解析梯度计算
+        #F(ω) = ∑ [z_ξ - 1/(1+exp(-a(∑σ_i|h_i⊗M|² - T_r)))]²
 
-        根据公式:
-        F(ω) = ∑ [z_ξ - 1/(1+exp(-a(∑σ_i|h_i⊗M|² - T_r)))]²
-
-        计算梯度: ∂F/∂M
-        """
         # 前向传播计算中间变量
         M_fft = fftshift(fft2(mask))
 
@@ -176,13 +148,10 @@ class InverseLithographyOptimizer:
         # 计算梯度 ∂F/∂M
         gradient = np.zeros_like(mask, dtype=np.complex128)
 
-        # 链式法则: ∂F/∂M = ∂F/∂P * ∂P/∂I * ∂I/∂M
-
         # 1. ∂F/∂P = -2(z - P)
         dF_dP = -2 * (target - P)
 
         # 2. ∂P/∂I = a * P * (1 - P) * (∂I_norm/∂I)
-        # 注意这里要考虑归一化的影响
         dP_dI_norm = self.a * P * (1 - P)
 
         # 归一化的导数
@@ -198,12 +167,10 @@ class InverseLithographyOptimizer:
         dP_dI = dP_dI_norm * dI_norm_dI
 
         # 3. ∂I/∂M 的计算
+        # ∂I/∂M = 2 * σ_i * Re{A_i * (∂(h_i⊗M)/∂M)}
         for i, (s_val, H_i, A_i, I_i) in enumerate(zip(
                 self.singular_values, self.eigen_functions, A_i_list, I_i_list
         )):
-            # ∂I/∂M = 2 * σ_i * Re{A_i * (∂(h_i⊗M)/∂M)}
-            # 由于 h_i⊗M 是线性操作，其导数是 h_i 的共轭
-
             # 计算 ∂F/∂A_i = ∂F/∂I * ∂I/∂A_i = dF_dP * dP_dI * 2 * σ_i * A_i
             dF_dA_i = dF_dP * dP_dI * 2 * s_val * A_i.conj()
 
@@ -217,48 +184,6 @@ class InverseLithographyOptimizer:
         gradient_real = np.real(gradient)
 
         return loss, gradient_real, intensity_norm, P
-
-    def compute_loss_and_gradient(self, mask, target):
-        """
-        统一的损失和梯度计算
-        使用解析梯度方法
-        """
-        return self._compute_analytical_gradient(mask, target)
-
-    def verify_gradient_analytical(self, mask, target, epsilon=1e-6):
-        #验证解析梯度的正确性
-
-        print("Verifying analytical gradient...")
-
-        # 解析梯度
-        analytical_loss, analytical_grad, _, _ = self._compute_analytical_gradient(mask, target)
-
-        # 数值梯度
-        numerical_grad = np.zeros_like(mask)
-        base_loss, _, _, _ = self._compute_analytical_gradient(mask, target)
-
-        for i in range(mask.shape[0]):
-            for j in range(mask.shape[1]):
-                mask_plus = mask.copy()
-                mask_plus[i, j] += epsilon
-                loss_plus, _, _, _ = self._compute_analytical_gradient(mask_plus, target)
-
-                numerical_grad[i, j] = (loss_plus - base_loss) / epsilon
-
-        # 比较
-        diff = np.abs(analytical_grad - numerical_grad)
-        max_diff = np.max(diff)
-        avg_diff = np.mean(diff)
-
-        print(f"Gradient verification - Max diff: {max_diff:.6f}, Avg diff: {avg_diff:.6f}")
-        print(f"Analytical loss: {analytical_loss:.6f}, Base loss: {base_loss:.6f}")
-
-        if max_diff < 1e-4:
-            print("Analytical gradient verified successfully!")
-            return True
-        else:
-            print("WARNING: Large discrepancy in gradient calculation!")
-            return False
 
     def optimize(self, initial_mask, target, learning_rate=0.1, max_iterations=100):
         """
@@ -275,15 +200,13 @@ class InverseLithographyOptimizer:
         print(f"Starting ILT optimization with {max_iterations} iterations...")
         print("Using analytical gradient computation...")
 
-        # 梯度验证
-        self.verify_gradient_analytical(mask, target)
 
         best_mask = mask.copy()
         best_loss = float('inf')
 
-        for iteration in tqdm(range(max_iterations), desc="ILT Optimization"):
+        for iteration in range(max_iterations):
             # 使用解析梯度计算损失和梯度
-            loss, gradient, aerial_image, printed_image = self.compute_loss_and_gradient(mask, target)
+            loss, gradient, aerial_image, printed_image = self._compute_analytical_gradient(mask, target)
 
             # 记录最佳掩模
             if loss < best_loss:
