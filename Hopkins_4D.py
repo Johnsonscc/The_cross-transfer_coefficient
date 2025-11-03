@@ -11,7 +11,7 @@ from tqdm import tqdm
 LAMBDA = 405  # 波长（单位：纳米）
 Z = 803000000  # 距离（单位：纳米）774
 DX = DY = 7560  # 像素尺寸（单位：纳米）
-LX = LY = 300  # 图像尺寸（单位：像素）
+LX = LY = 2048  # 图像尺寸（单位：像素）
 N = 1.5  # 折射率（无量纲）1.4
 SIGMA = 0.5  # 部分相干因子（无量纲）
 NA = 0.5  # 数值孔径（无量纲）
@@ -21,11 +21,11 @@ A = 10.0            # sigmoid函数梯度
 TR = 0.5            # 阈值参数
 
 # 文件路径
-INITIAL_MASK_PATH = "../The_cross-transfer_coefficient/data/input/pixel300.png"
-TARGET_IMAGE_PATH = "../The_cross-transfer_coefficient/data/input/pixel300.png"
-OUTPUT_MASK_PATH = "../The_cross-transfer_coefficient/data/output/optimized_mask_pixel300.png"
-RESULTS_IMAGE_PATH = "../The_cross-transfer_coefficient/data/output/results_comparison_pixel300.png"
-FITNESS_PLOT_PATH = "../The_cross-transfer_coefficient/data/output/fitness_evolution_pixel300.png"
+INITIAL_MASK_PATH = "../lithography_simulation_Hopkins/data/input/cell2048.png"
+TARGET_IMAGE_PATH = "../lithography_simulation_Hopkins/data/input/cell2048.png"
+OUTPUT_MASK_PATH = "../lithography_simulation_Hopkins/data/output/optimized_mask_cell2048.png"
+RESULTS_IMAGE_PATH = "../lithography_simulation_Hopkins/data/output/results_comparison_cell2048.png"
+FITNESS_PLOT_PATH = "../lithography_simulation_Hopkins/data/output/fitness_evolution_cell2048.png"
 
 def load_image(path,grayscale=True):
     image = iio.imread(path)
@@ -51,7 +51,10 @@ def pupil_response_function(fx, fy, na=NA, lambda_=LAMBDA):
     return P
 
 
-def compute_tcc_svd(J, P, fx, fy, k):
+def compute_tcc_svd(J, P, fx, fy, k, sparsity_threshold=0.01):
+    """
+    使用稀疏矩阵方法计算TCC的SVD分解
+    """
     # 创建频域网格
     FX, FY = np.meshgrid(fx, fy, indexing='ij')
 
@@ -59,40 +62,44 @@ def compute_tcc_svd(J, P, fx, fy, k):
     J_vals = J(FX, FY)
     P_vals = P(FX, FY)
 
-    # 计算TCC核函数 - 修复：保持复数类型
+    # 计算TCC核函数
     tcc_kernel = J_vals * P_vals
     Lx, Ly = len(fx), len(fy)
 
-    # 修复：TCC矩阵应该是复数类型
-    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
+    print("Building sparse TCC matrix...")
 
-    print("Building TCC matrix...")
+    # 使用稀疏矩阵存储
+    from scipy.sparse import lil_matrix, csr_matrix
+    TCC_sparse = lil_matrix((Lx * Ly, Lx * Ly), dtype=np.complex128)
 
-    # 使用tqdm添加进度条
-    for i in tqdm(range(Lx), desc="TCC Computation"):
+    # 只计算显著的非零元素
+    for i in tqdm(range(Lx), desc="Sparse TCC Construction"):
         for j in range(Ly):
-            for m in range(Lx):
-                for n in range(Ly):
-                    if (0 <= i - m < Lx) and (0 <= j - n < Ly):
-                        TCC_4d[i, j, m, n] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
+            # 只考虑光源和瞳函数都非零的区域
+            if np.abs(tcc_kernel[i, j]) > sparsity_threshold:
+                for m in range(max(0, i - 5), min(Lx, i + 6)):  # 局部邻域
+                    for n in range(max(0, j - 5), min(Ly, j + 6)):
+                        if np.abs(tcc_kernel[m, n]) > sparsity_threshold:
+                            idx1 = i * Ly + j
+                            idx2 = m * Ly + n
+                            TCC_sparse[idx1, idx2] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
 
-    print("Performing SVD decomposition...")
+    # 转换为CSR格式以提高SVD效率
+    TCC_csr = csr_matrix(TCC_sparse)
 
-    # 重塑为2D矩阵进行SVD
-    TCC_2d = TCC_4d.reshape(Lx * Ly, Lx * Ly)
+    print("Performing sparse SVD decomposition...")
 
-    # 奇异值分解
-    U, S, Vh = svds(TCC_2d, k=min(k, min(TCC_2d.shape) - 1))
+    # 使用稀疏SVD
+    from scipy.sparse.linalg import svds
+    U, S, Vh = svds(TCC_csr, k=min(k, min(TCC_csr.shape) - 1))
 
-    # 取前k个奇异值
-    if k > len(S):
-        k = len(S)
+    # 确保奇异值按降序排列
+    idx = np.argsort(S)[::-1]
+    S = S[idx]
+    U = U[:, idx]
 
-    S = S[:k]
-    U = U[:, :k]
     H_functions = []
-
-    for i in range(len(S)):
+    for i in tqdm(range(len(S)), desc="Extracting eigenfunctions"):
         H_i = U[:, i].reshape(Lx, Ly)
         H_functions.append(H_i)
 
