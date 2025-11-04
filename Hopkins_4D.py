@@ -6,12 +6,13 @@ from skimage.color import rgb2gray
 from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from scipy.sparse.linalg import svds
 from tqdm import tqdm
+from scipy.ndimage import gaussian_filter
 
 # 光刻仿真参数
 LAMBDA = 405  # 波长（单位：纳米）
 Z = 803000000  # 距离（单位：纳米）774
 DX = DY = 7560  # 像素尺寸（单位：纳米）
-LX = LY = 2048  # 图像尺寸（单位：像素）
+LX = LY = 1000  # 图像尺寸（单位：像素）
 N = 1.5  # 折射率（无量纲）1.4
 SIGMA = 0.5  # 部分相干因子（无量纲）
 NA = 0.5  # 数值孔径（无量纲）
@@ -21,11 +22,11 @@ A = 10.0            # sigmoid函数梯度
 TR = 0.5            # 阈值参数
 
 # 文件路径
-INITIAL_MASK_PATH = "../lithography_simulation_Hopkins/data/input/cell2048.png"
-TARGET_IMAGE_PATH = "../lithography_simulation_Hopkins/data/input/cell2048.png"
-OUTPUT_MASK_PATH = "../lithography_simulation_Hopkins/data/output/optimized_mask_cell2048.png"
-RESULTS_IMAGE_PATH = "../lithography_simulation_Hopkins/data/output/results_comparison_cell2048.png"
-FITNESS_PLOT_PATH = "../lithography_simulation_Hopkins/data/output/fitness_evolution_cell2048.png"
+INITIAL_MASK_PATH = "../lithography_simulation_Hopkins/data/input/cell1000.png"
+TARGET_IMAGE_PATH = "../lithography_simulation_Hopkins/data/input/cell1000.png"
+OUTPUT_MASK_PATH = "../lithography_simulation_Hopkins/data/output/optimized_mask_cell1000.png"
+RESULTS_IMAGE_PATH = "../lithography_simulation_Hopkins/data/output/results_comparison_cell1000.png"
+FITNESS_PLOT_PATH = "../lithography_simulation_Hopkins/data/output/fitness_evolution_cell1000.png"
 
 def load_image(path,grayscale=True):
     image = iio.imread(path)
@@ -51,49 +52,51 @@ def pupil_response_function(fx, fy, na=NA, lambda_=LAMBDA):
     return P
 
 
-def compute_tcc_svd(J, P, fx, fy, k, sparsity_threshold=0.01):
+def compute_tcc_svd(J, P, fx, fy, k, sparsity_threshold=0.001):
     """
-    使用稀疏矩阵方法计算TCC的SVD分解
+    改进的TCC计算，确保包含足够的高频成分
     """
-    # 创建频域网格
     FX, FY = np.meshgrid(fx, fy, indexing='ij')
-
-    # 计算有效光源和瞳函数
     J_vals = J(FX, FY)
     P_vals = P(FX, FY)
 
-    # 计算TCC核函数
+    # 确保瞳函数包含适当的高频截止
     tcc_kernel = J_vals * P_vals
+
     Lx, Ly = len(fx), len(fy)
 
-    print("Building sparse TCC matrix...")
+    print("Building improved TCC matrix...")
 
-    # 使用稀疏矩阵存储
+    # 使用更密集的采样确保高频信息
     from scipy.sparse import lil_matrix, csr_matrix
     TCC_sparse = lil_matrix((Lx * Ly, Lx * Ly), dtype=np.complex128)
 
-    # 只计算显著的非零元素
-    for i in tqdm(range(Lx), desc="Sparse TCC Construction"):
+    # 扩大邻域搜索范围以捕捉更多频率相互作用
+    neighborhood_radius = 10  # 从5增加到10
+
+    for i in tqdm(range(Lx), desc="Improved TCC Construction"):
         for j in range(Ly):
-            # 只考虑光源和瞳函数都非零的区域
             if np.abs(tcc_kernel[i, j]) > sparsity_threshold:
-                for m in range(max(0, i - 5), min(Lx, i + 6)):  # 局部邻域
-                    for n in range(max(0, j - 5), min(Ly, j + 6)):
+                for m in range(max(0, i - neighborhood_radius),
+                               min(Lx, i + neighborhood_radius + 1)):
+                    for n in range(max(0, j - neighborhood_radius),
+                                   min(Ly, j + neighborhood_radius + 1)):
                         if np.abs(tcc_kernel[m, n]) > sparsity_threshold:
                             idx1 = i * Ly + j
                             idx2 = m * Ly + n
                             TCC_sparse[idx1, idx2] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
 
-    # 转换为CSR格式以提高SVD效率
     TCC_csr = csr_matrix(TCC_sparse)
 
-    print("Performing sparse SVD decomposition...")
 
-    # 使用稀疏SVD
-    from scipy.sparse.linalg import svds
-    U, S, Vh = svds(TCC_csr, k=min(k, min(TCC_csr.shape) - 1))
+    print(f"Performing SVD with {k} components...")
+    U, S, Vh = svds(TCC_csr, k=k)
 
-    # 确保奇异值按降序排列
+    # 过滤掉太小的奇异值
+    significant_mask = S > (np.max(S) * 0.01)  # 只保留大于1%最大值的奇异值
+    S = S[significant_mask]
+    U = U[:, significant_mask]
+
     idx = np.argsort(S)[::-1]
     S = S[idx]
     U = U[:, idx]
@@ -103,6 +106,7 @@ def compute_tcc_svd(J, P, fx, fy, k, sparsity_threshold=0.01):
         H_i = U[:, i].reshape(Lx, Ly)
         H_functions.append(H_i)
 
+    print(f"Using {len(S)} significant singular values")
     return S, H_functions
 
 
@@ -153,9 +157,13 @@ def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
     return result
 
 
-def photoresist_model(intensity, a=A, Tr=TR):
-    # 应用sigmoid函数
+def photoresist_model(intensity, a=15.0, Tr=0.5, diffusion_length=10.0):
+
     resist_pattern = 1 / (1 + np.exp(-a * (intensity - Tr)))
+
+    # 添加扩散效应模拟化学放大
+    resist_pattern = gaussian_filter(resist_pattern, sigma=diffusion_length / 10.0)
+
     return resist_pattern
 
 def plot_comparison(target_image, aerial_image_initial, print_image_initial,
