@@ -3,7 +3,9 @@ from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from config.parameters import *
 from scipy.sparse.linalg import svds
 from tqdm import tqdm
+from scipy.sparse import lil_matrix, csr_matrix
 import logging
+
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -23,48 +25,51 @@ def pupil_response_function(fx, fy, na=NA, lambda_=LAMBDA):
     return P
 
 
-def compute_tcc_svd(J, P, fx, fy, k):
-    # 创建频域网格
-    FX, FY = np.meshgrid(fx, fy, indexing='ij')
+def compute_tcc_svd(J, P, fx, fy, k, sparsity_threshold=0.001):
 
-    # 计算有效光源和瞳函数
+    FX, FY = np.meshgrid(fx, fy, indexing='xy')
+
     J_vals = J(FX, FY)
     P_vals = P(FX, FY)
 
-    # 计算TCC核函数 - 修复：保持复数类型
+    # 确保瞳函数包含适当的高频截止
     tcc_kernel = J_vals * P_vals
     Lx, Ly = len(fx), len(fy)
 
-    # 修复：TCC矩阵应该是复数类型
-    TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
-
     print("Building TCC matrix...")
 
-    # 使用tqdm添加进度条
-    for i in tqdm(range(Lx), desc="TCC Computation"):
+    # 在邻域搜索范围计算频率相互作用
+    TCC_sparse = lil_matrix((Lx * Ly, Lx * Ly), dtype=np.complex128)
+    neighborhood_radius = 10
+
+    for i in tqdm(range(Lx), desc="TCC Construction"):
         for j in range(Ly):
-            for m in range(Lx):
-                for n in range(Ly):
-                    if (0 <= i - m < Lx) and (0 <= j - n < Ly):
-                        TCC_4d[i, j, m, n] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
+            #计算核函数大于阈值的频率
+            if np.abs(tcc_kernel[i, j]) > sparsity_threshold:
+                for m in range(max(0, i - neighborhood_radius),min(Lx, i + neighborhood_radius + 1)):
+                    for n in range(max(0, j - neighborhood_radius),min(Ly, j + neighborhood_radius + 1)):
+                        if np.abs(tcc_kernel[m, n]) > sparsity_threshold:
+                            idx1 = i * Ly + j
+                            idx2 = m * Ly + n
+                            TCC_sparse[idx1, idx2] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
 
-    print("Performing SVD decomposition...")
+    TCC_csr = csr_matrix(TCC_sparse)
 
-    # 重塑为2D矩阵进行SVD
-    TCC_2d = TCC_4d.reshape(Lx * Ly, Lx * Ly)
 
-    # 奇异值分解
-    U, S, Vh = svds(TCC_2d, k=min(k, min(TCC_2d.shape) - 1))
+    print(f"Performing SVD with {k} components...")
+    U, S, Vh = svds(TCC_csr, k=k)
 
-    # 取前k个奇异值
-    if k > len(S):
-        k = len(S)
+    # 过滤掉太小的奇异值
+    significant_mask = S > (np.max(S) * 0.01)  # 只保留大于1%最大值的奇异值
+    S = S[significant_mask]
+    U = U[:, significant_mask]
 
-    S = S[:k]
-    U = U[:, :k]
+    idx = np.argsort(S)[::-1]
+    S = S[idx]
+    U = U[:, idx]
+
     H_functions = []
-
-    for i in range(len(S)):
+    for i in tqdm(range(len(S)), desc="Extracting eigenfunctions"):
         H_i = U[:, i].reshape(Lx, Ly)
         H_functions.append(H_i)
 
@@ -72,10 +77,13 @@ def compute_tcc_svd(J, P, fx, fy, k):
 
 
 def hopkins_digital_lithography_simulation(mask, lambda_=LAMBDA, lx=LX, ly=LY,
-                                           dx=DX, dy=DY, sigma=SIGMA, na=NA, k_svd=10):
+                                            sigma=SIGMA, na=NA, k_svd=K_SVD):
     # 频域坐标
-    fx = np.linspace(-0.5 / dx, 0.5 / dx, lx)
-    fy = np.linspace(-0.5 / dy, 0.5 / dy, ly)
+    max_freq = na / lambda_
+    freq = 2 * max_freq
+
+    fx = np.linspace(-freq, freq, lx)
+    fy = np.linspace(-freq, freq, ly)
 
     # 定义光源和瞳函数
     J = lambda fx, fy: light_source_function(fx, fy, sigma, na, lambda_)

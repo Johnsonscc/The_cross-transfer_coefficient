@@ -3,6 +3,7 @@ from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from scipy.sparse.linalg import svds
 import logging
 from tqdm import tqdm
+from scipy.sparse import lil_matrix, csr_matrix
 from config.parameters import *
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ class InverseLithographyOptimizer:
     """
 
     def __init__(self, lambda_=LAMBDA, na=NA, sigma=SIGMA, dx=DX, dy=DY,
-                 lx=LX, ly=LY, k_svd=10, a=A, tr=TR):
+                 lx=LX, ly=LY, k_svd=ILT_K_SVD, a=A, tr=TR):
         # 光学参数
         self.lambda_ = lambda_
         self.na = na
@@ -36,67 +37,85 @@ class InverseLithographyOptimizer:
 
         logger.info("InverseLithographyOptimizer initialized")
 
-    def _compute_full_tcc_matrix(self, fx, fy):
+    def pupil_response_function(fx, fy, na=NA, lambda_=LAMBDA):
+        r = np.sqrt(fx ** 2 + fy ** 2)
+        r_max = na / lambda_
+        P = np.where(r < r_max, lambda_ ** 2 / (np.pi * (na) ** 2), 0)
+        return P
+
+    def _compute_full_tcc_matrix(self, fx, fy, sparsity_threshold=0.001):
 
         # 创建频域网格
         Lx, Ly = len(fx), len(fy)
-        FX, FY = np.meshgrid(fx, fy, indexing='ij')
+        FX, FY = np.meshgrid(fx, fy, indexing='xy')
+
 
         # 计算光源函数 J(f,g)
         r_j = np.sqrt(FX ** 2 + FY ** 2)
         r_max_j = self.sigma * self.na / self.lambda_
-        J = np.where(r_j <= r_max_j, 1.0, 0.0)
-        J = J / np.sum(J)  # 归一化
+        J = np.where(r_j <= r_max_j,
+                     self.lambda_ ** 2 / (np.pi * (self.sigma * self.na) ** 2), 0.0)
 
         # 计算瞳函数 P(f,g)
         r_p = np.sqrt(FX ** 2 + FY ** 2)
         r_max_p = self.na / self.lambda_
-        P = np.where(r_p <= r_max_p, 1.0, 0.0).astype(np.complex128)
+        P = np.where(r_p <= r_max_p,
+                     self.lambda_ ** 2 / (np.pi * (self.na) ** 2), 0.0)
 
         tcc_kernel = J * P
 
         print(f"Building 4D TCC matrix ({Lx}x{Ly}x{Lx}x{Ly})...")
 
-        # 初始化4D TCC矩阵
-        TCC_4d = np.zeros((Lx, Ly, Lx, Ly), dtype=np.complex128)
+        # 在邻域搜索范围计算频率相互作用
+        TCC_sparse = lil_matrix((Lx * Ly, Lx * Ly), dtype=np.complex128)
+        neighborhood_radius = 10
 
-        # TCC计算
-        for i in tqdm(range(Lx), desc="TCC Computation"):
+        for i in tqdm(range(Lx), desc="Improved TCC Construction"):
             for j in range(Ly):
-                for m in range(Lx):
-                    for n in range(Ly):
-                        if (0 <= i - m < Lx) and (0 <= j - n < Ly):
-                            TCC_4d[i, j, m, n] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
+                # 计算核函数大于阈值的频率
+                if np.abs(tcc_kernel[i, j]) > sparsity_threshold:
+                    for m in range(max(0, i - neighborhood_radius), min(Lx, i + neighborhood_radius + 1)):
+                        for n in range(max(0, j - neighborhood_radius), min(Ly, j + neighborhood_radius + 1)):
+                            if np.abs(tcc_kernel[m, n]) > sparsity_threshold:
+                                idx1 = i * Ly + j
+                                idx2 = m * Ly + n
+                                TCC_sparse[idx1, idx2] = tcc_kernel[i, j] * np.conj(tcc_kernel[m, n])
 
-        return TCC_4d
+        TCC_csr = csr_matrix(TCC_sparse)
 
-    def _svd_of_tcc_matrix(self, TCC_4d, k):
-        """对4D TCC矩阵进行SVD分解"""
-        Lx, Ly, _, _ = TCC_4d.shape
+        return TCC_csr
 
-        TCC_2d = TCC_4d.reshape(Lx * Ly, Lx * Ly)
+    def _svd_of_tcc_matrix(self, TCC_csr, k, Lx=LX, Ly=LY):
 
         print("Performing SVD decomposition...")
-        k_actual = min(k, min(TCC_2d.shape) - 1)
-        U, s, Vh = svds(TCC_2d, k=k_actual)
+        k_actual = min(k, min(TCC_csr.shape) - 1)
 
-        # 确保奇异值按降序排列
-        idx = np.argsort(s)[::-1]
-        s = s[idx]
+        U, S, Vh = svds(TCC_csr, k=k_actual)
+
+        # 过滤掉太小的奇异值
+        significant_mask = S > (np.max(S) * 0.01)  # 只保留大于1%最大值的奇异值
+        S = S[significant_mask]
+        U = U[:, significant_mask]
+
+        idx = np.argsort(S)[::-1]
+        S = S[idx]
         U = U[:, idx]
 
         H_functions = []
-        for i in range(len(s)):
+        for i in range(len(S)):
             H_i = U[:, i].reshape(Lx, Ly)
             H_functions.append(H_i)
 
-        return s, H_functions
+        return S, H_functions
 
     def _precompute_tcc_svd(self):
 
         # 频域坐标
-        fx = np.linspace(-0.5 / self.dx, 0.5 / self.dx, self.lx)
-        fy = np.linspace(-0.5 / self.dy, 0.5 / self.dy, self.ly)
+        max_freq = self.na /self.lambda_
+        freq = 2 * max_freq
+
+        fx = np.linspace(-freq, freq, LX)
+        fy = np.linspace(-freq, freq, LY)
 
         # 完整计算TCC矩阵
         TCC_4d = self._compute_full_tcc_matrix(fx, fy)
@@ -185,7 +204,7 @@ class InverseLithographyOptimizer:
 
         return loss, gradient_real, intensity_norm, P
 
-    def optimize(self, initial_mask, target, learning_rate=0.1, max_iterations=100):
+    def optimize(self, initial_mask, target, learning_rate, max_iterations):
         """
         使用解析梯度的优化过程
         """

@@ -1,15 +1,16 @@
 from PIL import Image
 import os
+import numpy as np
 
 # 导入参数和DMD调制函数
 from config.parameters import *
 from core.lithography_simulation_source import dmd_modulation
-from utils.image_processing import load_image, binarize_image, save_image
+from utils.image_processing import load_image
 
 
 
 def save_dmd_modulation_results(original_mask, modulated_mask,
-                                output_dir="../The_cross-transfer_coefficient/data/output/dmd_test"):
+                                output_dir="../lithography simulation based on Hopkins/data/output/dmd_test"):
     """
     保存DMD调制结果
     """
